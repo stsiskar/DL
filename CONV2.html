@@ -12,9 +12,9 @@
             --text-muted: #94a3b8;
             --accent: #38bdf8;
             --accent-hover: #0ea5e9;
-            --highlight-input: #f43f5e;   /* red/pink */
-            --highlight-weight: #fbbf24;  /* amber */
-            --highlight-calc: #a3e635;    /* green */
+            --highlight-input: #f43f5e;
+            --highlight-weight: #fbbf24;
+            --highlight-calc: #a3e635;
             --border-color: #334155;
             --cell-size: 32px;
             --gap: 3px;
@@ -29,7 +29,7 @@
             display: flex;
             flex-direction: column;
             min-height: 100vh;
-            overflow-x: auto; /* allow horizontal scrolling if needed */
+            overflow-x: auto; /* horizontal scroll for large W */
         }
 
         header {
@@ -49,7 +49,7 @@
             flex: 1;
             padding: 2rem;
             gap: 2rem;
-            overflow-x: auto;  /* horizontal scrollbar for whole content */
+            overflow-x: auto;
         }
 
         .sidebar {
@@ -110,16 +110,6 @@
             accent-color: var(--accent);
         }
 
-        input[type="number"] {
-            width: 60px;
-            padding: 4px 6px;
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
-            background: #020617;
-            color: var(--text-main);
-            font-family: monospace;
-        }
-
         select {
             width: 100%;
             padding: 6px 8px;
@@ -140,11 +130,11 @@
 
         .stage-row {
             display: flex;
-            flex-wrap: nowrap;   /* keep panels on one line */
+            flex-wrap: nowrap;   /* keep all three panels on one line */
             gap: 2rem;
             justify-content: flex-start;
             align-items: flex-start;
-            width: max-content;  /* row can be wider than viewport */
+            width: max-content;
         }
 
         .panel {
@@ -183,7 +173,6 @@
             background: var(--card-bg);
             border-radius: 8px;
             border: 1px solid var(--border-color);
-            /* no inner scrollbars */
         }
 
         .cell {
@@ -201,14 +190,12 @@
             font-family: monospace;
         }
 
-        /* Padding visualization: white 0 only for padding cells */
         .cell.padding {
             background-color: #ffffff;
             border: 1px solid var(--border-color);
             color: #000000;
         }
 
-        /* Hover highlight states */
         .cell.active-input {
             background-color: var(--highlight-input) !important;
             color: #fff;
@@ -270,6 +257,14 @@
         <p class="subtitle">Interactive visualization of Input → Filter → Output</p>
     </div>
 </header>
+
+<!-- Hidden source smile images: replace src with your own PNG/JPG paths -->
+<img id="src-simple" src="simple_smile.png" style="display:none;" alt="">
+<img id="src-big"    src="big_smile.png"    style="display:none;" alt="">
+<img id="src-wink"   src="wink_smile.png"   style="display:none;" alt="">
+<img id="src-sad"    src="sad_smile.png"    style="display:none;" alt="">
+<img id="src-relief" src="relief_smile.png" style="display:none;" alt="">
+<img id="src-heart"  src="heart_eyes.png"   style="display:none;" alt="">
 
 <main>
     <!-- Sidebar Controls -->
@@ -426,7 +421,7 @@
 
 <script>
 /*
-    JS: convolution logic + hover mapping + face patterns
+    JS: convolution logic + hover mapping + grayscale smile images resized to W×W
 */
 
 const state = {
@@ -472,166 +467,74 @@ const els = {
     statusBox: document.getElementById('status-box')
 };
 
-// ---- Face generators (base 28x28) ----
-function generateFaceBase(type) {
-    const size = 28;
-    const img = Array.from({ length: size }, () => Array(size).fill(0));
-    const cx = (size - 1) / 2;
-    const cy = (size - 1) / 2;
-    const radius = size * 0.45;
+// map smile type → hidden <img>
+const smileImgs = {
+    simple: document.getElementById('src-simple'),
+    big:    document.getElementById('src-big'),
+    wink:   document.getElementById('src-wink'),
+    sad:    document.getElementById('src-sad'),
+    relief: document.getElementById('src-relief'),
+    heart:  document.getElementById('src-heart')
+};
 
-    // Base circular face
-    for (let i = 0; i < size; i++) {
-        for (let j = 0; j < size; j++) {
-            const dx = j - cx;
-            const dy = i - cy;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < radius) {
-                img[i][j] = 0.15;
-            }
-        }
-    }
+// ---- image → grayscale patch (W×W) ----
+async function imgToPatch(img, W) {
+    return new Promise((resolve) => {
+        function doIt() {
+            const canvas = document.createElement('canvas');
+            canvas.width = W;
+            canvas.height = W;
+            const ctx = canvas.getContext('2d');
 
-    const eyeR = size * 0.07;
-    const leftEyeX  = cx - size * 0.15;
-    const rightEyeX = cx + size * 0.15;
-    const eyeY      = cy - size * 0.12;
+            // draw scaled image
+            ctx.drawImage(img, 0, 0, W, W);
 
-    // Helper for simple circular eyes
-    function addEyeCircle(ex, ey, r, val) {
-        const r2 = r * r;
-        for (let i = 0; i < size; i++) {
-            for (let j = 0; j < size; j++) {
-                const dx = j - ex;
-                const dy = i - ey;
-                if (dx * dx + dy * dy <= r2) {
-                    img[i][j] = Math.max(img[i][j], val);
+            const data = ctx.getImageData(0, 0, W, W).data;
+            const patch = [];
+            for (let y = 0; y < W; y++) {
+                const row = [];
+                for (let x = 0; x < W; x++) {
+                    const idx = (y * W + x) * 4;
+                    const r = data[idx];
+                    const g = data[idx + 1];
+                    const b = data[idx + 2];
+                    // standard luminance, scaled to [0,1]
+                    const gray = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                    row.push(gray);
                 }
+                patch.push(row);
             }
+            resolve(patch);
         }
-    }
 
-    // Helper for heart-shaped eyes
-    function addEyeHeart(ex, ey, scale, val) {
-        for (let i = 0; i < size; i++) {
-            for (let j = 0; j < size; j++) {
-                const x = (j - ex) / scale;
-                const y = (i - ey) / scale;
-                const f = Math.pow(x*x + y*y - 1, 3) - x*x*y*y*y;
-                if (f <= 0) {
-                    img[i][j] = Math.max(img[i][j], val);
-                }
-            }
-        }
-    }
-
-    // Common mouth helper: arc
-    function addMouth(centerYShift, arcSign, thickness, openFactor, val) {
-        const mouthYBase = cy + centerYShift * size;
-        const halfWidth = radius * 0.6;
-        for (let i = 0; i < size; i++) {
-            for (let j = 0; j < size; j++) {
-                const x = j - cx;
-                if (Math.abs(x) > halfWidth) continue;
-                const t = x / halfWidth;          // -1..1
-                const curve = mouthYBase + arcSign * openFactor * (t * t) * size;
-                if (Math.abs(i - curve) <= thickness * size) {
-                    img[i][j] = Math.max(img[i][j], val);
-                }
-            }
-        }
-    }
-
-    // Straight mouth
-    function addMouthStraight(centerYShift, val, thickness) {
-        const y0 = cy + centerYShift * size;
-        const halfWidth = radius * 0.6;
-        for (let i = 0; i < size; i++) {
-            for (let j = 0; j < size; j++) {
-                const x = j - cx;
-                if (Math.abs(x) > halfWidth) continue;
-                if (Math.abs(i - y0) <= thickness * size) {
-                    img[i][j] = Math.max(img[i][j], val);
-                }
-            }
-        }
-    }
-
-    // Eyebrows for relief
-    function addEyebrow(ex, ey, length, tilt, val) {
-        for (let j = -length; j <= length; j++) {
-            const x = Math.round(ex + j);
-            const y = Math.round(ey - size * 0.08 + tilt * j / length);
-            if (y >= 0 && y < size && x >= 0 && x < size) {
-                img[y][x] = Math.max(img[y][x], val);
-            }
-        }
-    }
-
-    // Choose pattern
-    if (type === 'heart') {
-        addEyeHeart(leftEyeX,  eyeY, eyeR * 1.3, 0.9);
-        addEyeHeart(rightEyeX, eyeY, eyeR * 1.3, 0.9);
-        addMouth(0.16, 1, 0.015, 0.12, 0.7); // wide smile
-    } else {
-        // Eyes for non-heart patterns
-        if (type === 'wink') {
-            // left normal, right wink line
-            addEyeCircle(leftEyeX, eyeY, eyeR, 0.9);
-            const winkLen = eyeR * 1.6;
-            for (let j = -winkLen; j <= winkLen; j++) {
-                const x = Math.round(rightEyeX + j);
-                const y = Math.round(eyeY);
-                if (x >= 0 && x < size && y >= 0 && y < size) {
-                    img[y][x] = Math.max(img[y][x], 0.9);
-                }
-            }
+        // if image is already loaded
+        if (img.complete && img.naturalWidth > 0) {
+            doIt();
         } else {
-            addEyeCircle(leftEyeX,  eyeY, eyeR, 0.9);
-            addEyeCircle(rightEyeX, eyeY, eyeR, 0.9);
+            img.onload = () => doIt();
+            img.onerror = () => {
+                // fallback: all zeros
+                const p = Array.from({ length: W }, () =>
+                    Array(W).fill(0)
+                );
+                resolve(p);
+            };
         }
-
-        if (type === 'simple') {
-            addMouth(0.17, 1, 0.012, 0.12, 0.8);   // gentle smile
-        } else if (type === 'big') {
-            addMouth(0.18, 1, 0.02, 0.18, 0.8);    // big smile
-            // little fill under mouth to make it "open"
-            const yFillStart = cy + 0.18 * size;
-            for (let i = yFillStart; i < yFillStart + size * 0.06; i++) {
-                if (i < 0 || i >= size) continue;
-                for (let j = 0; j < size; j++) {
-                    img[i][j] = Math.max(img[i][j], 0.4);
-                }
-            }
-        } else if (type === 'wink') {
-            addMouth(0.17, 1, 0.015, 0.15, 0.8);
-        } else if (type === 'sad') {
-            addMouth(0.23, -1, 0.015, 0.12, 0.8);  // inverted arc
-        } else if (type === 'relief') {
-            addMouthStraight(0.2, 0.6, 0.01);
-            addEyebrow(leftEyeX, eyeY, 5, -0.4, 0.7);
-            addEyebrow(rightEyeX, eyeY, 5, 0.4, 0.7);
-        }
-    }
-
-    return img;
+    });
 }
 
-function getInputPatch(W, type) {
+async function getInputPatch(W, type) {
     W = Math.max(2, Math.min(28, W));
-    const base = generateFaceBase(type);
-    const patch = [];
-    for (let i = 0; i < W; i++) {
-        const row = [];
-        for (let j = 0; j < W; j++) {
-            row.push(base[i][j]);
-        }
-        patch.push(row);
+    const img = smileImgs[type];
+    if (!img) {
+        const blank = Array.from({ length: W }, () => Array(W).fill(0));
+        return { patch: blank };
     }
+    const patch = await imgToPatch(img, W);
     return { patch };
 }
 
-// ---- Filter builders (unchanged logic) ----
+// ---- Filter builders ----
 function embedKernel(base, F) {
     const f0 = base.length;
     if (F <= f0) {
@@ -923,9 +826,9 @@ function drawMatrix(container, M, options = {}) {
     const {
         showValues = false,
         valueFmt = v => v.toFixed(1),
-        mode = 'image',    // 'image' | 'kernel' | 'output'
-        type = null,       // 'input' | 'kernel' | 'output'
-        paddingInfo = null // { W, P } for input grid
+        mode = 'image',
+        type = null,
+        paddingInfo = null
     } = options;
 
     const rows = M.length;
@@ -951,7 +854,6 @@ function drawMatrix(container, M, options = {}) {
             const cell = document.createElement('div');
             cell.className = 'cell';
 
-            // ----- base coloring -----
             if (mode === 'image' || mode === 'output') {
                 const norm = (v - min) / range;
                 const light = 20 + norm * 60;
@@ -971,18 +873,15 @@ function drawMatrix(container, M, options = {}) {
                 cell.style.backgroundColor = `hsl(${hue}, ${sat}%, ${light}%)`;
             }
 
-            // default text
             if (showValues) {
                 cell.textContent = valueFmt(v);
             }
 
-            // ----- attach coordinates & classes -----
             if (type === 'input') {
                 cell.dataset.iy = i;
                 cell.dataset.ix = j;
                 cell.classList.add('input-cell');
 
-                // only padding cells (outside original W×W)
                 if (paddingInfo) {
                     const { W, P } = paddingInfo;
                     const isPadding =
@@ -1076,14 +975,14 @@ function adjustRange(key, delta) {
     render();
 }
 
-// ---- Main render ----
-function render() {
+// ---- Main render (async because of image loading) ----
+async function render() {
     clampState();
     clearHighlights();
 
     const { imgType, W, F, S, P, filterType } = state;
 
-    const { patch } = getInputPatch(W, imgType);
+    const { patch } = await getInputPatch(W, imgType);
 
     const displayH = W + 2 * P;
     const displayW = W + 2 * P;
@@ -1135,7 +1034,8 @@ function render() {
         heart: 'Heart Eyes'
     }[imgType] || imgType;
 
-    els.inputInfo.textContent = `Pattern="${patternName}" | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
+    els.inputInfo.textContent =
+        `Pattern="${patternName}" | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
     els.kernelInfo.textContent = `Type=${filterType}, Size=${F}×${F}`;
     els.outputInfo.textContent = ok ? `Size=${out.length}×${out[0].length}, Stride=${S}` : 'No valid output';
 
