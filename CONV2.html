@@ -344,7 +344,7 @@
                 </div>
                 <select id="filter-type">
                     <option>Identity</option>
-
+                    <option>Avarage</option>
                     <option>Upper Border Detection</option>
                     <option>Lower Border Detection</option>
                     <option>Right Border Detection</option>
@@ -578,6 +578,18 @@ function buildFilter(F, filterType) {
         return k;
     }
 
+    if (ft.includes('Average')) {
+        const k = zeros();
+        const v = 1.0 / (F * F);
+    
+        for (let i = 0; i < F; i++) {
+            for (let j = 0; j < F; j++) {
+                k[i][j] = v;
+            }
+        }
+        return k;
+    }
+    
     if (filterType === 'Upper Border Detection') {
         const k = zeros();
         for (let j = 0; j < F; j++) {
