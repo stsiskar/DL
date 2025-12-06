@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive im2col & GEMM Visualization</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #0ea5e9;
+            --highlight-input: #f43f5e; /* Red/Pink for Input */
+            --highlight-weight: #fbbf24; /* Amber for Weights */
+            --highlight-calc: #a3e635; /* Green for Result */
+            --border-color: #334155;
+            --cell-size: 36px;
+            --gap: 4px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: var(--card-bg);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+        p.subtitle { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+
+        main {
+            display: flex;
+            flex: 1;
+            padding: 2rem;
+            gap: 2rem;
+            overflow-x: hidden;
+        }
+
+        /* Sidebar Controls */
+        .sidebar {
+            flex: 0 0 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .controls-card {
+            background-color: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-group { margin-bottom: 1.25rem; }
+        .control-group:last-child { margin-bottom: 0; }
+        
+        .control-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        
+        .value-display { color: var(--accent); font-weight: bold; font-family: monospace; }
+
+        /* Custom Range Input with Buttons */
+        .range-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-adjust {
+            background: var(--border-color);
+            border: none;
+            color: var(--text-main);
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .btn-adjust:hover { background: var(--accent); color: #fff; }
+        .btn-adjust:active { transform: scale(0.95); }
+
+        input[type="range"] {
+            flex: 1;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        /* Visualization Area */
+        .viz-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 3rem;
+            align-items: center;
+        }
+
+        .stage-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            justify-content: center;
+            align-items: flex-start;
+            width: 100%;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(30, 41, 59, 0.5);
+            padding: 1rem;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            transition: border-color 0.3s;
+        }
+        
+        .panel:hover { border-color: var(--border-color); }
+
+        .panel-title {
+            margin-bottom: 1rem;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-main);
+            text-align: center;
+        }
+        
+        .panel-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            font-family: monospace;
+        }
+
+        /* Grids */
+        .grid-wrapper {
+            display: grid;
+            gap: var(--gap);
+            padding: 8px;
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s;
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            background-color: #475569;
+            border-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.7rem;
+            color: rgba(255,255,255,0.9);
+            cursor: default;
+            transition: all 0.1s ease;
+            user-select: none;
+            font-family: monospace;
+        }
+
+        .cell.padding {
+            background-color: transparent;
+            border: 1px dashed var(--border-color);
+            color: var(--text-muted);
+        }
+
+        /* Interaction States */
+        .cell.active-input {
+            background-color: var(--highlight-input) !important;
+            color: #fff;
+            transform: scale(1.1);
+            z-index: 10;
+            box-shadow: 0 0 8px var(--highlight-input);
+        }
+
+        .cell.active-col {
+            border: 2px solid var(--highlight-input);
+            background-color: rgba(244, 63, 94, 0.2) !important;
+        }
+
+        .cell.active-weight {
+            background-color: var(--highlight-weight) !important;
+            color: #000;
+            font-weight: bold;
+            transform: scale(1.1);
+            box-shadow: 0 0 8px var(--highlight-weight);
+        }
+
+        .cell.active-result {
+            background-color: var(--highlight-calc) !important;
+            color: #000;
+            font-weight: bold;
+            transform: scale(1.1);
+            box-shadow: 0 0 8px var(--highlight-calc);
+        }
+
+        /* Arrows and Math Symbols */
+        .symbol {
+            align-self: center;
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            font-weight: bold;
+        }
+
+        /* Math Section Specifics */
+        .math-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .divider {
+            width: 100%;
+            height: 1px;
+            background: var(--border-color);
+            margin: 1rem 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 1100px) {
+            main { flex-direction: column; }
+            .sidebar { width: 100%; flex: none; }
+            .controls-card { max-width: 100%; }
+            .math-container { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>im2col & GEMM</h1>
+        <p class="subtitle">Convolution as Matrix Multiplication</p>
+    </div>
+</header>
+
+<main>
+    <!-- Sidebar Controls -->
+    <aside class="sidebar">
+        <div class="controls-card">
+            <!-- Input Size -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Input Size (H=W)</label>
+                    <span id="val-size" class="value-display">5</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjust('size', -1)">-</button>
+                    <input type="range" id="inp-size" min="3" max="8" value="5">
+                    <button class="btn-adjust" onclick="adjust('size', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Kernel Size -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Kernel Size (K)</label>
+                    <span id="val-kernel" class="value-display">3</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjust('kernel', -1)">-</button>
+                    <input type="range" id="inp-kernel" min="2" max="5" value="3">
+                    <button class="btn-adjust" onclick="adjust('kernel', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Stride -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Stride (S)</label>
+                    <span id="val-stride" class="value-display">1</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjust('stride', -1)">-</button>
+                    <input type="range" id="inp-stride" min="1" max="3" value="1">
+                    <button class="btn-adjust" onclick="adjust('stride', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Padding -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Padding (P)</label>
+                    <span id="val-padding" class="value-display">0</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjust('padding', -1)">-</button>
+                    <input type="range" id="inp-padding" min="0" max="2" value="0">
+                    <button class="btn-adjust" onclick="adjust('padding', 1)">+</button>
+                </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
+                <strong style="color:var(--accent)">How to interact:</strong><br>
+                Hover over the <strong>Final Output</strong> grid (bottom right) to visualize the entire calculation path:
+                <ul style="padding-left: 1.2rem; margin: 0.5rem 0;">
+                    <li><span style="color:var(--highlight-calc)">●</span> Result Pixel</li>
+                    <li><span style="color:var(--highlight-weight)">●</span> Weights Used</li>
+                    <li><span style="color:var(--highlight-input)">●</span> Input Patch</li>
+                </ul>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Visualization Area -->
+    <div class="viz-area">
+        
+        <!-- Row 1: Transformation -->
+        <div class="stage-row">
+            <!-- Input Image -->
+            <div class="panel">
+                <div class="panel-title">1. Input Image</div>
+                <div class="panel-subtitle" id="input-dims"></div>
+                <div id="input-grid" class="grid-wrapper"></div>
+            </div>
+
+            <div class="symbol">➔</div>
+
+            <!-- Output Matrix (im2col) -->
+            <div class="panel">
+                <div class="panel-title">2. im2col Matrix</div>
+                <div class="panel-subtitle" id="im2col-dims"></div>
+                <div id="im2col-grid" class="grid-wrapper"></div>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Row 2: Multiplication -->
+        <div class="stage-row">
+            
+            <div class="math-container">
+                <!-- Weights -->
+                <div class="panel">
+                    <div class="panel-title">3. Flattened Weights</div>
+                    <div class="panel-subtitle" id="weights-dims"></div>
+                    <div id="weights-grid" class="grid-wrapper"></div>
+                </div>
+
+                <div class="symbol">×</div>
+
+                <div class="panel" style="border: 1px dashed var(--border-color); background: transparent;">
+                    <div class="panel-subtitle">im2col Matrix<br>(From Step 2)</div>
+                </div>
+
+                <div class="symbol">=</div>
+
+                <!-- GEMM Result -->
+                <div class="panel">
+                    <div class="panel-title">4. GEMM Result</div>
+                    <div class="panel-subtitle" id="gemm-dims"></div>
+                    <div id="gemm-grid" class="grid-wrapper"></div>
+                </div>
+            </div>
+
+            <div class="symbol">➔</div>
+
+            <!-- Final Output -->
+            <div class="panel">
+                <div class="panel-title">5. Final Output Map</div>
+                <div class="panel-subtitle" id="output-dims"></div>
+                <div id="output-grid" class="grid-wrapper"></div>
+            </div>
+
+        </div>
+
+    </div>
+</main>
+
+<script>
+    // --- State Management ---
+    const state = {
+        size: 5,
+        kernel: 3,
+        stride: 1,
+        padding: 0,
+        weights: [] // Will hold random weights
+    };
+
+    // --- DOM Elements ---
+    const els = {
+        inputGrid: document.getElementById('input-grid'),
+        im2colGrid: document.getElementById('im2col-grid'),
+        weightsGrid: document.getElementById('weights-grid'),
+        gemmGrid: document.getElementById('gemm-grid'),
+        outputGrid: document.getElementById('output-grid'),
+        
+        dims: {
+            input: document.getElementById('input-dims'),
+            im2col: document.getElementById('im2col-dims'),
+            weights: document.getElementById('weights-dims'),
+            gemm: document.getElementById('gemm-dims'),
+            output: document.getElementById('output-dims'),
+        },
+        
+        inputs: {
+            size: document.getElementById('inp-size'),
+            kernel: document.getElementById('inp-kernel'),
+            stride: document.getElementById('inp-stride'),
+            padding: document.getElementById('inp-padding')
+        },
+        displays: {
+            size: document.getElementById('val-size'),
+            kernel: document.getElementById('val-kernel'),
+            stride: document.getElementById('val-stride'),
+            padding: document.getElementById('val-padding')
+        }
+    };
+
+    // --- Initialization ---
+    function init() {
+        // Generate initial weights
+        generateWeights();
+
+        // Attach Range Listeners
+        Object.keys(els.inputs).forEach(key => {
+            els.inputs[key].addEventListener('input', (e) => {
+                state[key] = parseInt(e.target.value);
+                els.displays[key].textContent = state[key];
+                if(key === 'kernel') generateWeights();
+                render();
+            });
+        });
+
+        render();
+    }
+
+    // --- Logic: Adjust Values via Buttons ---
+    window.adjust = function(key, delta) {
+        const input = els.inputs[key];
+        const newVal = parseInt(input.value) + delta;
+        
+        if (newVal >= parseInt(input.min) && newVal <= parseInt(input.max)) {
+            input.value = newVal;
+            state[key] = newVal;
+            els.displays[key].textContent = newVal;
+            if(key === 'kernel') generateWeights();
+            render();
+        }
+    };
+
+    // --- Logic: Generate Weights ---
+    function generateWeights() {
+        // Create simple integer weights between -2 and 2 for readability
+        const count = state.kernel * state.kernel;
+        state.weights = [];
+        for(let i=0; i<count; i++) {
+            state.weights.push(Math.floor(Math.random() * 3) - 1); // -1, 0, 1
+        }
+    }
+
+    // --- Logic: Get Input Pixel Value ---
+    function getInputValue(r, c) {
+        // Simple gradient pattern
+        return (r * 10 + c * 5) % 50; 
+    }
+
+    // --- Rendering ---
+    function render() {
+        const { size, kernel, stride, padding, weights } = state;
+        const paddedSize = size + 2 * padding;
+        
+        // 1. Calculate Output Dimensions
+        const outSize = Math.floor((size + 2 * padding - kernel) / stride) + 1;
+        
+        if (outSize <= 0) {
+            els.outputGrid.innerHTML = "<div style='padding:10px; color:#f43f5e'>Invalid Parameters</div>";
+            return;
+        }
+
+        const im2colRows = kernel * kernel; 
+        const im2colCols = outSize * outSize;
+
+        // --- A. Render Input Grid ---
+        els.inputGrid.style.gridTemplateColumns = `repeat(${paddedSize}, var(--cell-size))`;
+        els.inputGrid.innerHTML = '';
+        
+        for (let r = 0; r < paddedSize; r++) {
+            for (let c = 0; c < paddedSize; c++) {
+                const cell = createCell();
+                
+                const isPadding = r < padding || r >= (size + padding) || c < padding || c >= (size + padding);
+                cell.dataset.r = r;
+                cell.dataset.c = c;
+                
+                if (isPadding) {
+                    cell.classList.add('padding');
+                    cell.textContent = 0;
+                    cell.dataset.val = 0;
+                } else {
+                    const val = getInputValue(r - padding, c - padding);
+                    cell.textContent = val;
+                    cell.dataset.val = val;
+                    cell.style.backgroundColor = `hsl(215, 25%, ${30 + val}%)`;
+                }
+                els.inputGrid.appendChild(cell);
+            }
+        }
+        els.dims.input.textContent = `${paddedSize}x${paddedSize} (Padded)`;
+
+        // --- B. Render im2col Matrix ---
+        // We need to store the values to calculate GEMM later
+        const im2colData = []; // Array of columns
+
+        els.im2colGrid.style.gridTemplateColumns = `repeat(${im2colCols}, var(--cell-size))`;
+        els.im2colGrid.innerHTML = '';
+
+        // Loop through patches (Columns of im2col)
+        for (let col = 0; col < im2colCols; col++) {
+            const patchVals = [];
+            const oy = Math.floor(col / outSize);
+            const ox = col % outSize;
+            const startY = oy * stride;
+            const startX = ox * stride;
+
+            // Loop through kernel pixels (Rows of im2col)
+            for (let row = 0; row < im2colRows; row++) {
+                const ky = Math.floor(row / kernel);
+                const kx = row % kernel;
+                const inputY = startY + ky;
+                const inputX = startX + kx;
+
+                // Retrieve value from input logic
+                let val = 0;
+                const isPadding = inputY < padding || inputY >= (size + padding) || inputX < padding || inputX >= (size + padding);
+                
+                if (!isPadding) {
+                    val = getInputValue(inputY - padding, inputX - padding);
+                }
+                patchVals.push(val);
+
+                // Render Cell
+                const cell = createCell();
+                cell.textContent = val;
+                cell.dataset.colIndex = col; // Belongs to patch 'col'
+                cell.dataset.rowIndex = row; // Belongs to weight 'row'
+                cell.dataset.inputR = inputY;
+                cell.dataset.inputC = inputX;
+                
+                if(isPadding) {
+                    cell.classList.add('padding');
+                } else {
+                    cell.style.backgroundColor = `hsl(215, 25%, ${30 + val}%)`;
+                }
+                els.im2colGrid.appendChild(cell);
+            }
+            im2colData.push(patchVals);
+        }
+        els.dims.im2col.textContent = `${im2colRows} rows x ${im2colCols} cols`;
+
+        // --- C. Render Weights ---
+        els.weightsGrid.style.gridTemplateColumns = `repeat(${im2colRows}, var(--cell-size))`;
+        els.weightsGrid.innerHTML = '';
+        
+        weights.forEach((w, idx) => {
+            const cell = createCell();
+            cell.textContent = w;
+            cell.dataset.wIndex = idx;
+            cell.style.backgroundColor = '#334155'; // Neutral for weights
+            cell.style.color = '#fbbf24'; // Gold text
+            els.weightsGrid.appendChild(cell);
+        });
+        els.dims.weights.textContent = `1 x ${im2colRows}`;
+
+        // --- D. Render GEMM Result & Final Output ---
+        // GEMM: Weights (1 x K^2) dot (K^2 x N) = (1 x N)
+        const gemmResults = [];
+
+        els.gemmGrid.style.gridTemplateColumns = `repeat(${im2colCols}, var(--cell-size))`;
+        els.gemmGrid.innerHTML = '';
+
+        els.outputGrid.style.gridTemplateColumns = `repeat(${outSize}, var(--cell-size))`;
+        els.outputGrid.innerHTML = '';
+
+        for(let i=0; i<im2colCols; i++) {
+            // Calculate Dot Product
+            const colVals = im2colData[i];
+            let sum = 0;
+            for(let k=0; k<im2colRows; k++) {
+                sum += weights[k] * colVals[k];
+            }
+            gemmResults.push(sum);
+
+            // Render GEMM Cell (Linear)
+            const gCell = createCell();
+            gCell.textContent = sum;
+            gCell.dataset.resIndex = i;
+            gCell.style.backgroundColor = '#0f172a';
+            gCell.style.border = '1px solid #334155';
+            els.gemmGrid.appendChild(gCell);
+
+            // Render Output Cell (2D Reshaped)
+            const oCell = createCell();
+            oCell.textContent = sum;
+            oCell.dataset.resIndex = i; // Links back to GEMM index
+            
+            // Color map for result (heatmap style)
+            // Normalize roughly for display
+            const intensity = Math.min(100, Math.max(0, (sum + 50))); 
+            oCell.style.backgroundColor = `rgba(163, 230, 53, ${intensity/150 + 0.1})`; // Greenish
+            oCell.style.color = '#fff';
+
+            // EVENTS
+            oCell.addEventListener('mouseenter', () => highlightFlow(i));
+            oCell.addEventListener('mouseleave', clearHighlights);
+
+            els.outputGrid.appendChild(oCell);
+        }
+        els.dims.gemm.textContent = `1 x ${im2colCols}`;
+        els.dims.output.textContent = `${outSize} x ${outSize}`;
+    }
+
+    function createCell() {
+        const d = document.createElement('div');
+        d.className = 'cell';
+        return d;
+    }
+
+    // --- Interaction Logic ---
+    function highlightFlow(index) {
+        // 1. Highlight Final Output Cell
+        const outCells = els.outputGrid.querySelectorAll('.cell');
+        outCells.forEach(c => {
+            if(parseInt(c.dataset.resIndex) === index) c.classList.add('active-result');
+        });
+
+        // 2. Highlight GEMM Cell
+        const gemmCells = els.gemmGrid.querySelectorAll('.cell');
+        gemmCells.forEach(c => {
+            if(parseInt(c.dataset.resIndex) === index) c.classList.add('active-result');
+        });
+
+        // 3. Highlight im2col Column
+        const imCells = els.im2colGrid.querySelectorAll('.cell');
+        imCells.forEach(c => {
+            if(parseInt(c.dataset.colIndex) === index) {
+                c.classList.add('active-col');
+                
+                // 4. Highlight corresponding Input Pixels
+                const r = c.dataset.inputR;
+                const col = c.dataset.inputC;
+                const inputCell = els.inputGrid.querySelector(`.cell[data-r="${r}"][data-c="${col}"]`);
+                if(inputCell) inputCell.classList.add('active-input');
+            }
+        });
+
+        // 5. Highlight Weights (All of them are used for every pixel)
+        const wCells = els.weightsGrid.querySelectorAll('.cell');
+        wCells.forEach(c => c.classList.add('active-weight'));
+    }
+
+    function clearHighlights() {
+        document.querySelectorAll('.active-result').forEach(c => c.classList.remove('active-result'));
+        document.querySelectorAll('.active-col').forEach(c => c.classList.remove('active-col'));
+        document.querySelectorAll('.active-input').forEach(c => c.classList.remove('active-input'));
+        document.querySelectorAll('.active-weight').forEach(c => c.classList.remove('active-weight'));
+    }
+
+    // Start
+    init();
+
+</script>
+
+</body>
+</html>
