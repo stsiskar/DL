@@ -29,6 +29,7 @@
             display: flex;
             flex-direction: column;
             min-height: 100vh;
+            overflow-x: auto; /* allow horizontal scrolling if needed */
         }
 
         header {
@@ -48,7 +49,7 @@
             flex: 1;
             padding: 2rem;
             gap: 2rem;
-            overflow-x: hidden;
+            overflow-x: auto;  /* horizontal scrollbar for whole content */
         }
 
         .sidebar {
@@ -139,11 +140,11 @@
 
         .stage-row {
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;   /* keep panels on one line */
             gap: 2rem;
-            justify-content: center;
+            justify-content: flex-start;
             align-items: flex-start;
-            width: 100%;
+            width: max-content;  /* row can be wider than viewport */
         }
 
         .panel {
@@ -182,8 +183,7 @@
             background: var(--card-bg);
             border-radius: 8px;
             border: 1px solid var(--border-color);
-            max-height: 420px;
-            overflow: auto;
+            /* no inner scrollbars */
         }
 
         .cell {
@@ -201,10 +201,11 @@
             font-family: monospace;
         }
 
+        /* Padding visualization: white 0 only for padding cells */
         .cell.padding {
-            background-color: transparent;
-            border: 1px dashed var(--border-color);
-            color: var(--text-muted);
+            background-color: #ffffff;
+            border: 1px solid var(--border-color);
+            color: #000000;
         }
 
         /* Hover highlight states */
@@ -274,17 +275,20 @@
     <!-- Sidebar Controls -->
     <aside class="sidebar">
         <div class="controls-card">
-            <!-- Image Index -->
+
+            <!-- Image Pattern -->
             <div class="control-group">
                 <div class="control-header">
-                    <label>Image Index</label>
-                    <span id="val-img" class="value-display">0</span>
+                    <label>Image Pattern</label>
                 </div>
-                <div class="input-wrapper">
-                    <button class="btn-adjust" onclick="adjustInt('imgIndex', -1)">-</button>
-                    <input type="number" id="inp-img" min="0" max="999" value="0">
-                    <button class="btn-adjust" onclick="adjustInt('imgIndex', 1)">+</button>
-                </div>
+                <select id="img-type">
+                    <option value="simple">🙂 Simple Smile</option>
+                    <option value="big">😄 Big Smile</option>
+                    <option value="wink">😉 Wink</option>
+                    <option value="sad">☹️ Sad</option>
+                    <option value="relief">😌 Relief</option>
+                    <option value="heart">😍 Heart Eyes</option>
+                </select>
             </div>
 
             <!-- Input Size W -->
@@ -377,7 +381,7 @@
                 <ul style="margin:0.4rem 0 0; padding-left:1.1rem;">
                     <li><span style="color:var(--highlight-calc)">Green</span> – selected output</li>
                     <li><span style="color:var(--highlight-weight)">Yellow</span> – kernel weights used</li>
-                    <li><span style="color:var(--highlight-input)">Red</span> – input cells used</li>
+                    <li><span style="color:var(--highlight-input)">Red</span> – input cells used (white = padding)</li>
                 </ul>
             </div>
         </div>
@@ -422,11 +426,11 @@
 
 <script>
 /*
-    JS: convolution logic + hover mapping
+    JS: convolution logic + hover mapping + face patterns
 */
 
 const state = {
-    imgIndex: 0,
+    imgType: 'simple',
     W: 28,
     F: 3,
     S: 1,
@@ -438,8 +442,7 @@ let lastMapping = null; // maps output (oy,ox) → list of {iy,ix,ky,kx}
 
 // ---- DOM elements ----
 const els = {
-    imgInput: document.getElementById('inp-img'),
-    imgVal: document.getElementById('val-img'),
+    imgTypeSelect: document.getElementById('img-type'),
 
     WInput: document.getElementById('inp-W'),
     WVal: document.getElementById('val-W'),
@@ -469,43 +472,154 @@ const els = {
     statusBox: document.getElementById('status-box')
 };
 
-// ---- Synthetic "MNIST-like" image ----
-function generateBaseImage(idx) {
+// ---- Face generators (base 28x28) ----
+function generateFaceBase(type) {
     const size = 28;
-    const img = [];
-    const centerX = size / 2 + Math.sin(idx) * 3;
-    const centerY = size / 2 + Math.cos(idx * 0.7) * 3;
-    const radius = 7 + (idx % 4);
+    const img = Array.from({ length: size }, () => Array(size).fill(0));
+    const cx = (size - 1) / 2;
+    const cy = (size - 1) / 2;
+    const radius = size * 0.45;
 
+    // Base circular face
     for (let i = 0; i < size; i++) {
-        const row = [];
         for (let j = 0; j < size; j++) {
-            const dx = i - centerY;
-            const dy = j - centerX;
+            const dx = j - cx;
+            const dy = i - cy;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            let val = 0;
-
-            if (dist < radius + 1) {
-                val = 1 - Math.min(1, dist / (radius + 1));
+            if (dist < radius) {
+                img[i][j] = 0.15;
             }
-
-            const diag = Math.abs(i - j - (idx % 5));
-            if (diag < 2) {
-                val = Math.max(val, 0.4);
-            }
-
-            row.push(val);
         }
-        img.push(row);
     }
+
+    const eyeR = size * 0.07;
+    const leftEyeX  = cx - size * 0.15;
+    const rightEyeX = cx + size * 0.15;
+    const eyeY      = cy - size * 0.12;
+
+    // Helper for simple circular eyes
+    function addEyeCircle(ex, ey, r, val) {
+        const r2 = r * r;
+        for (let i = 0; i < size; i++) {
+            for (let j = 0; j < size; j++) {
+                const dx = j - ex;
+                const dy = i - ey;
+                if (dx * dx + dy * dy <= r2) {
+                    img[i][j] = Math.max(img[i][j], val);
+                }
+            }
+        }
+    }
+
+    // Helper for heart-shaped eyes
+    function addEyeHeart(ex, ey, scale, val) {
+        for (let i = 0; i < size; i++) {
+            for (let j = 0; j < size; j++) {
+                const x = (j - ex) / scale;
+                const y = (i - ey) / scale;
+                const f = Math.pow(x*x + y*y - 1, 3) - x*x*y*y*y;
+                if (f <= 0) {
+                    img[i][j] = Math.max(img[i][j], val);
+                }
+            }
+        }
+    }
+
+    // Common mouth helper: arc
+    function addMouth(centerYShift, arcSign, thickness, openFactor, val) {
+        const mouthYBase = cy + centerYShift * size;
+        const halfWidth = radius * 0.6;
+        for (let i = 0; i < size; i++) {
+            for (let j = 0; j < size; j++) {
+                const x = j - cx;
+                if (Math.abs(x) > halfWidth) continue;
+                const t = x / halfWidth;          // -1..1
+                const curve = mouthYBase + arcSign * openFactor * (t * t) * size;
+                if (Math.abs(i - curve) <= thickness * size) {
+                    img[i][j] = Math.max(img[i][j], val);
+                }
+            }
+        }
+    }
+
+    // Straight mouth
+    function addMouthStraight(centerYShift, val, thickness) {
+        const y0 = cy + centerYShift * size;
+        const halfWidth = radius * 0.6;
+        for (let i = 0; i < size; i++) {
+            for (let j = 0; j < size; j++) {
+                const x = j - cx;
+                if (Math.abs(x) > halfWidth) continue;
+                if (Math.abs(i - y0) <= thickness * size) {
+                    img[i][j] = Math.max(img[i][j], val);
+                }
+            }
+        }
+    }
+
+    // Eyebrows for relief
+    function addEyebrow(ex, ey, length, tilt, val) {
+        for (let j = -length; j <= length; j++) {
+            const x = Math.round(ex + j);
+            const y = Math.round(ey - size * 0.08 + tilt * j / length);
+            if (y >= 0 && y < size && x >= 0 && x < size) {
+                img[y][x] = Math.max(img[y][x], val);
+            }
+        }
+    }
+
+    // Choose pattern
+    if (type === 'heart') {
+        addEyeHeart(leftEyeX,  eyeY, eyeR * 1.3, 0.9);
+        addEyeHeart(rightEyeX, eyeY, eyeR * 1.3, 0.9);
+        addMouth(0.16, 1, 0.015, 0.12, 0.7); // wide smile
+    } else {
+        // Eyes for non-heart patterns
+        if (type === 'wink') {
+            // left normal, right wink line
+            addEyeCircle(leftEyeX, eyeY, eyeR, 0.9);
+            const winkLen = eyeR * 1.6;
+            for (let j = -winkLen; j <= winkLen; j++) {
+                const x = Math.round(rightEyeX + j);
+                const y = Math.round(eyeY);
+                if (x >= 0 && x < size && y >= 0 && y < size) {
+                    img[y][x] = Math.max(img[y][x], 0.9);
+                }
+            }
+        } else {
+            addEyeCircle(leftEyeX,  eyeY, eyeR, 0.9);
+            addEyeCircle(rightEyeX, eyeY, eyeR, 0.9);
+        }
+
+        if (type === 'simple') {
+            addMouth(0.17, 1, 0.012, 0.12, 0.8);   // gentle smile
+        } else if (type === 'big') {
+            addMouth(0.18, 1, 0.02, 0.18, 0.8);    // big smile
+            // little fill under mouth to make it "open"
+            const yFillStart = cy + 0.18 * size;
+            for (let i = yFillStart; i < yFillStart + size * 0.06; i++) {
+                if (i < 0 || i >= size) continue;
+                for (let j = 0; j < size; j++) {
+                    img[i][j] = Math.max(img[i][j], 0.4);
+                }
+            }
+        } else if (type === 'wink') {
+            addMouth(0.17, 1, 0.015, 0.15, 0.8);
+        } else if (type === 'sad') {
+            addMouth(0.23, -1, 0.015, 0.12, 0.8);  // inverted arc
+        } else if (type === 'relief') {
+            addMouthStraight(0.2, 0.6, 0.01);
+            addEyebrow(leftEyeX, eyeY, 5, -0.4, 0.7);
+            addEyebrow(rightEyeX, eyeY, 5, 0.4, 0.7);
+        }
+    }
+
     return img;
 }
 
-function getInputPatch(W, idx) {
-    idx = Math.max(0, Math.min(999, idx));
+function getInputPatch(W, type) {
     W = Math.max(2, Math.min(28, W));
-
-    const base = generateBaseImage(idx);
+    const base = generateFaceBase(type);
     const patch = [];
     for (let i = 0; i < W; i++) {
         const row = [];
@@ -514,11 +628,10 @@ function getInputPatch(W, idx) {
         }
         patch.push(row);
     }
-    const label = idx % 10;
-    return { patch, label };
+    return { patch };
 }
 
-// ---- Filter builders ----
+// ---- Filter builders (unchanged logic) ----
 function embedKernel(base, F) {
     const f0 = base.length;
     if (F <= f0) {
@@ -805,13 +918,14 @@ function conv2d(image, kernel, stride, padding) {
     return { out, outNorm, ok: true, mapping };
 }
 
-// ---- drawMatrix with coordinate tagging & events ----
+// ---- drawMatrix with coordinate tagging & padding info ----
 function drawMatrix(container, M, options = {}) {
     const {
         showValues = false,
         valueFmt = v => v.toFixed(1),
         mode = 'image',    // 'image' | 'kernel' | 'output'
-        type = null        // 'input' | 'kernel' | 'output'
+        type = null,       // 'input' | 'kernel' | 'output'
+        paddingInfo = null // { W, P } for input grid
     } = options;
 
     const rows = M.length;
@@ -837,6 +951,7 @@ function drawMatrix(container, M, options = {}) {
             const cell = document.createElement('div');
             cell.className = 'cell';
 
+            // ----- base coloring -----
             if (mode === 'image' || mode === 'output') {
                 const norm = (v - min) / range;
                 const light = 20 + norm * 60;
@@ -856,15 +971,30 @@ function drawMatrix(container, M, options = {}) {
                 cell.style.backgroundColor = `hsl(${hue}, ${sat}%, ${light}%)`;
             }
 
+            // default text
             if (showValues) {
                 cell.textContent = valueFmt(v);
             }
 
-            // Attach coordinates & classes
+            // ----- attach coordinates & classes -----
             if (type === 'input') {
                 cell.dataset.iy = i;
                 cell.dataset.ix = j;
                 cell.classList.add('input-cell');
+
+                // only padding cells (outside original W×W)
+                if (paddingInfo) {
+                    const { W, P } = paddingInfo;
+                    const isPadding =
+                        i < P || i >= P + W || j < P || j >= P + W;
+
+                    if (isPadding) {
+                        cell.classList.add('padding');
+                        cell.textContent = '0';
+                        cell.style.backgroundColor = '#ffffff';
+                        cell.style.color = '#000000';
+                    }
+                }
             } else if (type === 'kernel') {
                 cell.dataset.ky = i;
                 cell.dataset.kx = j;
@@ -890,13 +1020,11 @@ function highlightForOutput(oy, ox) {
 
     const contribs = lastMapping[oy][ox];
 
-    // Highlight output cell
     const outCell = document.querySelector(
         `.output-cell[data-oy="${oy}"][data-ox="${ox}"]`
     );
     if (outCell) outCell.classList.add('active-result');
 
-    // Highlight input + kernel cells
     contribs.forEach(c => {
         const inCell = document.querySelector(
             `.input-cell[data-iy="${c.iy}"][data-ix="${c.ix}"]`
@@ -918,7 +1046,6 @@ function clearHighlights() {
 
 // ---- State helpers ----
 function clampState() {
-    state.imgIndex = Math.max(0, Math.min(999, state.imgIndex));
     state.W = Math.max(2, Math.min(28, state.W));
     state.F = Math.max(1, Math.min(9, state.F));
     state.S = Math.max(1, Math.min(5, state.S));
@@ -926,9 +1053,6 @@ function clampState() {
 }
 
 function updateUIFromState() {
-    els.imgInput.value = state.imgIndex;
-    els.imgVal.textContent = state.imgIndex;
-
     els.WInput.value = state.W;
     els.WVal.textContent = state.W;
 
@@ -942,13 +1066,7 @@ function updateUIFromState() {
     els.PVal.textContent = state.P;
 
     els.filterSelect.value = state.filterType;
-}
-
-function adjustInt(key, delta) {
-    state[key] += delta;
-    clampState();
-    updateUIFromState();
-    render();
+    els.imgTypeSelect.value = state.imgType;
 }
 
 function adjustRange(key, delta) {
@@ -963,9 +1081,9 @@ function render() {
     clampState();
     clearHighlights();
 
-    const { imgIndex, W, F, S, P, filterType } = state;
+    const { imgType, W, F, S, P, filterType } = state;
 
-    const { patch, label } = getInputPatch(W, imgIndex);
+    const { patch } = getInputPatch(W, imgType);
 
     const displayH = W + 2 * P;
     const displayW = W + 2 * P;
@@ -984,7 +1102,8 @@ function render() {
     drawMatrix(els.inputGrid, displayImg, {
         showValues: false,
         mode: 'image',
-        type: 'input'
+        type: 'input',
+        paddingInfo: { W, P }
     });
 
     drawMatrix(els.kernelGrid, kernel, {
@@ -1007,7 +1126,16 @@ function render() {
         lastMapping = null;
     }
 
-    els.inputInfo.textContent = `Index=${imgIndex}, Label≈${label} | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
+    const patternName = {
+        simple: 'Simple Smile',
+        big: 'Big Smile',
+        wink: 'Wink',
+        sad: 'Sad',
+        relief: 'Relief',
+        heart: 'Heart Eyes'
+    }[imgType] || imgType;
+
+    els.inputInfo.textContent = `Pattern="${patternName}" | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
     els.kernelInfo.textContent = `Type=${filterType}, Size=${F}×${F}`;
     els.outputInfo.textContent = ok ? `Size=${out.length}×${out[0].length}, Stride=${S}` : 'No valid output';
 
@@ -1018,12 +1146,6 @@ function render() {
 }
 
 // ---- Event listeners ----
-els.imgInput.addEventListener('input', e => {
-    state.imgIndex = parseInt(e.target.value || '0', 10);
-    clampState();
-    updateUIFromState();
-    render();
-});
 els.WInput.addEventListener('input', e => {
     state.W = parseInt(e.target.value, 10);
     clampState();
@@ -1050,6 +1172,10 @@ els.PInput.addEventListener('input', e => {
 });
 els.filterSelect.addEventListener('change', e => {
     state.filterType = e.target.value;
+    render();
+});
+els.imgTypeSelect.addEventListener('change', e => {
+    state.imgType = e.target.value;
     render();
 });
 
