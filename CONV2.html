@@ -12,9 +12,9 @@
             --text-muted: #94a3b8;
             --accent: #38bdf8;
             --accent-hover: #0ea5e9;
-            --highlight-input: #f43f5e;
-            --highlight-weight: #fbbf24;
-            --highlight-calc: #a3e635;
+            --highlight-input: #f43f5e;   /* red/pink */
+            --highlight-weight: #fbbf24;  /* amber */
+            --highlight-calc: #a3e635;    /* green */
             --border-color: #334155;
             --cell-size: 32px;
             --gap: 3px;
@@ -29,7 +29,7 @@
             display: flex;
             flex-direction: column;
             min-height: 100vh;
-            overflow-x: auto; /* horizontal scroll for large W */
+            overflow-x: auto; /* allow horizontal scrolling if needed */
         }
 
         header {
@@ -49,7 +49,7 @@
             flex: 1;
             padding: 2rem;
             gap: 2rem;
-            overflow-x: auto;
+            overflow-x: auto;  /* horizontal scrollbar for whole content */
         }
 
         .sidebar {
@@ -110,6 +110,16 @@
             accent-color: var(--accent);
         }
 
+        input[type="number"] {
+            width: 60px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: #020617;
+            color: var(--text-main);
+            font-family: monospace;
+        }
+
         select {
             width: 100%;
             padding: 6px 8px;
@@ -130,11 +140,11 @@
 
         .stage-row {
             display: flex;
-            flex-wrap: nowrap;   /* keep all three panels on one line */
+            flex-wrap: nowrap;   /* keep panels on one line */
             gap: 2rem;
             justify-content: flex-start;
             align-items: flex-start;
-            width: max-content;
+            width: max-content;  /* row can be wider than viewport */
         }
 
         .panel {
@@ -173,6 +183,7 @@
             background: var(--card-bg);
             border-radius: 8px;
             border: 1px solid var(--border-color);
+            /* no inner scrollbars */
         }
 
         .cell {
@@ -190,12 +201,14 @@
             font-family: monospace;
         }
 
+        /* Padding visualization: white 0 only for padding cells */
         .cell.padding {
             background-color: #ffffff;
             border: 1px solid var(--border-color);
             color: #000000;
         }
 
+        /* Hover highlight states */
         .cell.active-input {
             background-color: var(--highlight-input) !important;
             color: #fff;
@@ -258,13 +271,11 @@
     </div>
 </header>
 
-<!-- Hidden source smile images: replace src with your own PNG/JPG paths -->
-<img id="src-simple" src="simple_smile.png" style="display:none;" alt="">
-<img id="src-big"    src="big_smile.png"    style="display:none;" alt="">
-<img id="src-wink"   src="wink_smile.png"   style="display:none;" alt="">
-<img id="src-sad"    src="sad_smile.png"    style="display:none;" alt="">
-<img id="src-relief" src="relief_smile.png" style="display:none;" alt="">
-<img id="src-heart"  src="heart_eyes.png"   style="display:none;" alt="">
+<!-- Hidden sprite with all emojis (save your PNG as emoji-sprite.png) -->
+<img id="emoji-sprite"
+     src="emoji-sprite.png"
+     alt="emoji sprite"
+     style="display:none;">
 
 <main>
     <!-- Sidebar Controls -->
@@ -421,7 +432,7 @@
 
 <script>
 /*
-    JS: convolution logic + hover mapping + grayscale smile images resized to W×W
+    JS: convolution logic + hover mapping + sprite-based emoji faces
 */
 
 const state = {
@@ -467,74 +478,107 @@ const els = {
     statusBox: document.getElementById('status-box')
 };
 
-// map smile type → hidden <img>
-const smileImgs = {
-    simple: document.getElementById('src-simple'),
-    big:    document.getElementById('src-big'),
-    wink:   document.getElementById('src-wink'),
-    sad:    document.getElementById('src-sad'),
-    relief: document.getElementById('src-relief'),
-    heart:  document.getElementById('src-heart')
+// ------------------------------------------------------------------
+//  SPRITE-BASED FACE IMAGES  (convert to grayscale, resize to 28x28)
+// ------------------------------------------------------------------
+
+// Sprite layout: 3 rows × 4 columns (your image)
+const EMOJI_SPRITE_ROWS = 3;
+const EMOJI_SPRITE_COLS = 4;
+
+// Map logical names to (row, col) in the sprite (0-based)
+const EMOJI_MAP = {
+    simple: { row: 0, col: 0 }, // 🙂
+    big:    { row: 0, col: 1 }, // 😄
+    wink:   { row: 0, col: 3 }, // closest to 😉
+    heart:  { row: 1, col: 1 }, // 😍
+    sad:    { row: 2, col: 1 }, // ☹️
+    relief: { row: 2, col: 2 }  // 😌 / stressed
 };
 
-// ---- image → grayscale patch (W×W) ----
-async function imgToPatch(img, W) {
-    return new Promise((resolve) => {
-        function doIt() {
-            const canvas = document.createElement('canvas');
-            canvas.width = W;
-            canvas.height = W;
-            const ctx = canvas.getContext('2d');
+const spriteImg    = document.getElementById('emoji-sprite');
+const spriteCanvas = document.createElement('canvas');
+const spriteCtx    = spriteCanvas.getContext('2d');
+const smallCanvas  = document.createElement('canvas');
+const smallCtx     = smallCanvas.getContext('2d');
+const emojiCache28 = {}; // cache of 28×28 grayscale arrays
 
-            // draw scaled image
-            ctx.drawImage(img, 0, 0, W, W);
+/**
+ * Extract 1 emoji from the sprite as a 28×28 grayscale array (0..1).
+ */
+function getBaseFace28(type) {
+    type = type || 'simple';
+    if (emojiCache28[type]) return emojiCache28[type];
 
-            const data = ctx.getImageData(0, 0, W, W).data;
-            const patch = [];
-            for (let y = 0; y < W; y++) {
-                const row = [];
-                for (let x = 0; x < W; x++) {
-                    const idx = (y * W + x) * 4;
-                    const r = data[idx];
-                    const g = data[idx + 1];
-                    const b = data[idx + 2];
-                    // standard luminance, scaled to [0,1]
-                    const gray = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                    row.push(gray);
-                }
-                patch.push(row);
-            }
-            resolve(patch);
+    const map = EMOJI_MAP[type] || EMOJI_MAP.simple;
+
+    const tileW = spriteImg.naturalWidth  / EMOJI_SPRITE_COLS;
+    const tileH = spriteImg.naturalHeight / EMOJI_SPRITE_ROWS;
+
+    // 1) Crop correct tile onto spriteCanvas
+    spriteCanvas.width  = tileW;
+    spriteCanvas.height = tileH;
+    spriteCtx.clearRect(0, 0, tileW, tileH);
+    spriteCtx.drawImage(
+        spriteImg,
+        map.col * tileW, map.row * tileH, // source
+        tileW, tileH,
+        0, 0,
+        tileW, tileH
+    );
+
+    // 2) Resize to 28×28
+    const TARGET = 28;
+    smallCanvas.width  = TARGET;
+    smallCanvas.height = TARGET;
+    smallCtx.clearRect(0, 0, TARGET, TARGET);
+    smallCtx.drawImage(
+        spriteCanvas,
+        0, 0, tileW, tileH,
+        0, 0, TARGET, TARGET
+    );
+
+    // 3) Read pixels and convert to grayscale [0,1]
+    const data = smallCtx.getImageData(0, 0, TARGET, TARGET).data;
+    const base = [];
+    for (let y = 0; y < TARGET; y++) {
+        const row = [];
+        for (let x = 0; x < TARGET; x++) {
+            const idx = (y * TARGET + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            const gray = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+            row.push(gray);
         }
+        base.push(row);
+    }
 
-        // if image is already loaded
-        if (img.complete && img.naturalWidth > 0) {
-            doIt();
-        } else {
-            img.onload = () => doIt();
-            img.onerror = () => {
-                // fallback: all zeros
-                const p = Array.from({ length: W }, () =>
-                    Array(W).fill(0)
-                );
-                resolve(p);
-            };
-        }
-    });
+    emojiCache28[type] = base;
+    return base;
 }
 
-async function getInputPatch(W, type) {
-    W = Math.max(2, Math.min(28, W));
-    const img = smileImgs[type];
-    if (!img) {
-        const blank = Array.from({ length: W }, () => Array(W).fill(0));
-        return { patch: blank };
+/**
+ * Return a W×W patch (top-left of 28×28 base face)
+ */
+function getInputPatch(W, type) {
+    W = Math.max(2, Math.min(28, W)); // clamp W
+    const base = getBaseFace28(type); // 28×28
+
+    const patch = [];
+    for (let i = 0; i < W; i++) {
+        const row = [];
+        for (let j = 0; j < W; j++) {
+            row.push(base[i][j]);
+        }
+        patch.push(row);
     }
-    const patch = await imgToPatch(img, W);
     return { patch };
 }
 
-// ---- Filter builders ----
+// --------------------------------------------------
+//  FILTER BUILDERS   (same as your original logic)
+// --------------------------------------------------
 function embedKernel(base, F) {
     const f0 = base.length;
     if (F <= f0) {
@@ -750,7 +794,9 @@ function buildFilter(F, filterType) {
     return zeros();
 }
 
-// ---- conv2d + mapping ----
+// --------------------------------------------------
+//  CONVOLUTION + MAPPING
+// --------------------------------------------------
 function conv2d(image, kernel, stride, padding) {
     stride = parseInt(stride, 10);
     padding = parseInt(padding, 10);
@@ -821,14 +867,16 @@ function conv2d(image, kernel, stride, padding) {
     return { out, outNorm, ok: true, mapping };
 }
 
-// ---- drawMatrix with coordinate tagging & padding info ----
+// --------------------------------------------------
+//  GRID DRAWING WITH HOVER HIGHLIGHTS
+// --------------------------------------------------
 function drawMatrix(container, M, options = {}) {
     const {
         showValues = false,
         valueFmt = v => v.toFixed(1),
-        mode = 'image',
-        type = null,
-        paddingInfo = null
+        mode = 'image',    // 'image' | 'kernel' | 'output'
+        type = null,       // 'input' | 'kernel' | 'output'
+        paddingInfo = null // { W, P } for input grid
     } = options;
 
     const rows = M.length;
@@ -854,6 +902,7 @@ function drawMatrix(container, M, options = {}) {
             const cell = document.createElement('div');
             cell.className = 'cell';
 
+            // ----- base coloring -----
             if (mode === 'image' || mode === 'output') {
                 const norm = (v - min) / range;
                 const light = 20 + norm * 60;
@@ -877,6 +926,7 @@ function drawMatrix(container, M, options = {}) {
                 cell.textContent = valueFmt(v);
             }
 
+            // ----- attach coordinates & classes -----
             if (type === 'input') {
                 cell.dataset.iy = i;
                 cell.dataset.ix = j;
@@ -943,7 +993,9 @@ function clearHighlights() {
     document.querySelectorAll('.active-result').forEach(el => el.classList.remove('active-result'));
 }
 
-// ---- State helpers ----
+// --------------------------------------------------
+//  STATE HELPERS & MAIN RENDER
+// --------------------------------------------------
 function clampState() {
     state.W = Math.max(2, Math.min(28, state.W));
     state.F = Math.max(1, Math.min(9, state.F));
@@ -975,14 +1027,13 @@ function adjustRange(key, delta) {
     render();
 }
 
-// ---- Main render (async because of image loading) ----
-async function render() {
+function render() {
     clampState();
     clearHighlights();
 
     const { imgType, W, F, S, P, filterType } = state;
 
-    const { patch } = await getInputPatch(W, imgType);
+    const { patch } = getInputPatch(W, imgType);
 
     const displayH = W + 2 * P;
     const displayW = W + 2 * P;
@@ -1034,8 +1085,7 @@ async function render() {
         heart: 'Heart Eyes'
     }[imgType] || imgType;
 
-    els.inputInfo.textContent =
-        `Pattern="${patternName}" | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
+    els.inputInfo.textContent = `Pattern="${patternName}" | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
     els.kernelInfo.textContent = `Type=${filterType}, Size=${F}×${F}`;
     els.outputInfo.textContent = ok ? `Size=${out.length}×${out[0].length}, Stride=${S}` : 'No valid output';
 
@@ -1045,7 +1095,9 @@ async function render() {
     els.statusBox.style.borderColor = ok ? 'var(--border-color)' : '#f97373';
 }
 
-// ---- Event listeners ----
+// --------------------------------------------------
+//  EVENT LISTENERS & INIT (after sprite loads)
+// --------------------------------------------------
 els.WInput.addEventListener('input', e => {
     state.W = parseInt(e.target.value, 10);
     clampState();
@@ -1079,9 +1131,18 @@ els.imgTypeSelect.addEventListener('change', e => {
     render();
 });
 
-// init
-updateUIFromState();
-render();
+// Wait for sprite to load before starting
+function startVisualizer() {
+    updateUIFromState();
+    render();
+}
+
+if (spriteImg.complete) {
+    // already loaded (cache)
+    startVisualizer();
+} else {
+    spriteImg.addEventListener('load', startVisualizer);
+}
 </script>
 
 </body>
