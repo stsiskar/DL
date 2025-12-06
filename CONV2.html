@@ -12,9 +12,9 @@
             --text-muted: #94a3b8;
             --accent: #38bdf8;
             --accent-hover: #0ea5e9;
-            --highlight-input: #f43f5e;
-            --highlight-weight: #fbbf24;
-            --highlight-calc: #a3e635;
+            --highlight-input: #f43f5e;   /* red/pink */
+            --highlight-weight: #fbbf24;  /* amber */
+            --highlight-calc: #a3e635;    /* green */
             --border-color: #334155;
             --cell-size: 32px;
             --gap: 3px;
@@ -207,6 +207,30 @@
             color: var(--text-muted);
         }
 
+        /* Hover highlight states */
+        .cell.active-input {
+            background-color: var(--highlight-input) !important;
+            color: #fff;
+            box-shadow: 0 0 8px var(--highlight-input);
+            z-index: 1;
+        }
+
+        .cell.active-weight {
+            background-color: var(--highlight-weight) !important;
+            color: #000;
+            font-weight: bold;
+            box-shadow: 0 0 8px var(--highlight-weight);
+            z-index: 1;
+        }
+
+        .cell.active-result {
+            background-color: var(--highlight-calc) !important;
+            color: #000;
+            font-weight: bold;
+            box-shadow: 0 0 8px var(--highlight-calc);
+            z-index: 1;
+        }
+
         .symbol {
             align-self: center;
             font-size: 2rem;
@@ -348,9 +372,13 @@
             </div>
 
             <div style="margin-top: 1.2rem; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
-                <strong style="color:var(--accent)">How to use:</strong><br>
-                Adjust <strong>W, F, S, P</strong> and the <strong>Filter Type</strong> to see how the
-                input patch, kernel, and output activation map change.
+                <strong style="color:var(--accent)">Hover Tip:</strong><br>
+                Hover over any <strong>output cell</strong> to see:
+                <ul style="margin:0.4rem 0 0; padding-left:1.1rem;">
+                    <li><span style="color:var(--highlight-calc)">Green</span> – selected output</li>
+                    <li><span style="color:var(--highlight-weight)">Yellow</span> – kernel weights used</li>
+                    <li><span style="color:var(--highlight-input)">Red</span> – input cells used</li>
+                </ul>
             </div>
         </div>
     </aside>
@@ -394,11 +422,7 @@
 
 <script>
 /*
-    This JS re-implements the main logic of your Python widget:
-    - synthetic get_input_patch(W, idx)
-    - build_filter(F, type)
-    - conv2d(image, kernel, stride, padding)
-    and draws three grids: Input, Filter, Output.
+    JS: convolution logic + hover mapping
 */
 
 const state = {
@@ -409,6 +433,8 @@ const state = {
     P: 0,
     filterType: 'Identity'
 };
+
+let lastMapping = null; // maps output (oy,ox) → list of {iy,ix,ky,kx}
 
 // ---- DOM elements ----
 const els = {
@@ -443,8 +469,7 @@ const els = {
     statusBox: document.getElementById('status-box')
 };
 
-// ---- Synthetic "MNIST-like" generator ----
-// We create a 28x28 grayscale pattern based on the image index.
+// ---- Synthetic "MNIST-like" image ----
 function generateBaseImage(idx) {
     const size = 28;
     const img = [];
@@ -464,7 +489,6 @@ function generateBaseImage(idx) {
                 val = 1 - Math.min(1, dist / (radius + 1));
             }
 
-            // add faint diagonal stroke
             const diag = Math.abs(i - j - (idx % 5));
             if (diag < 2) {
                 val = Math.max(val, 0.4);
@@ -477,7 +501,6 @@ function generateBaseImage(idx) {
     return img;
 }
 
-// Equivalent of get_input_patch(W, idx)
 function getInputPatch(W, idx) {
     idx = Math.max(0, Math.min(999, idx));
     W = Math.max(2, Math.min(28, W));
@@ -491,11 +514,11 @@ function getInputPatch(W, idx) {
         }
         patch.push(row);
     }
-    const label = idx % 10; // synthetic label
+    const label = idx % 10;
     return { patch, label };
 }
 
-// Embed small kernel into F×F
+// ---- Filter builders ----
 function embedKernel(base, F) {
     const f0 = base.length;
     if (F <= f0) {
@@ -519,7 +542,6 @@ function embedKernel(base, F) {
     return k;
 }
 
-// Gabor-like kernel
 function gaborKernel(F, theta) {
     const k = [];
     const sigma = 0.5;
@@ -542,11 +564,9 @@ function gaborKernel(F, theta) {
     return k;
 }
 
-// build_filter(F, filter_type)
 function buildFilter(F, filterType) {
     F = parseInt(F, 10);
     const ft = filterType.toLowerCase();
-
     const zeros = () => Array.from({ length: F }, () => Array(F).fill(0));
 
     if (ft.includes('identity')) {
@@ -555,7 +575,6 @@ function buildFilter(F, filterType) {
         return k;
     }
 
-    // borders
     if (filterType === 'Upper Border Detection') {
         const k = zeros();
         for (let j = 0; j < F; j++) {
@@ -589,7 +608,6 @@ function buildFilter(F, filterType) {
         return k;
     }
 
-    // Horizontal / vertical edges
     if (filterType === 'Horizontal Edge Detection') {
         const k = zeros();
         for (let i = 0; i < F; i++) {
@@ -609,7 +627,6 @@ function buildFilter(F, filterType) {
         return k;
     }
 
-    // Diagonal edges
     if (filterType === 'Diagonal Edge Detection (↘)') {
         const k = zeros();
         for (let i = 0; i < F; i++) {
@@ -631,7 +648,6 @@ function buildFilter(F, filterType) {
         return k;
     }
 
-    // Sobel X / Y
     if (ft.includes('sobel x')) {
         const base = [
             [-1, 0, 1],
@@ -649,7 +665,6 @@ function buildFilter(F, filterType) {
         return embedKernel(base, F);
     }
 
-    // Laplacian
     if (ft.includes('laplacian')) {
         const base = [
             [0, -1, 0],
@@ -659,7 +674,6 @@ function buildFilter(F, filterType) {
         return embedKernel(base, F);
     }
 
-    // Box blur
     if (ft.includes('box blur')) {
         const k = zeros();
         const val = 1.0 / (F * F);
@@ -671,7 +685,6 @@ function buildFilter(F, filterType) {
         return k;
     }
 
-    // Gaussian blur
     if (ft.includes('gaussian blur')) {
         const k = zeros();
         const sigma = 0.6;
@@ -685,7 +698,6 @@ function buildFilter(F, filterType) {
                 sum += val;
             }
         }
-        // normalize
         for (let i = 0; i < F; i++) {
             for (let j = 0; j < F; j++) {
                 k[i][j] /= sum;
@@ -694,7 +706,6 @@ function buildFilter(F, filterType) {
         return k;
     }
 
-    // Sharpen
     if (ft.includes('sharpen')) {
         const base = [
             [0, -1, 0],
@@ -704,7 +715,6 @@ function buildFilter(F, filterType) {
         return embedKernel(base, F);
     }
 
-    // Emboss
     if (ft.includes('emboss')) {
         const base = [
             [-2, -1, 0],
@@ -714,7 +724,6 @@ function buildFilter(F, filterType) {
         return embedKernel(base, F);
     }
 
-    // Gabor-like
     if (ft.includes('gabor') && ft.includes('horizontal')) {
         return gaborKernel(F, 0.0);
     }
@@ -722,11 +731,10 @@ function buildFilter(F, filterType) {
         return gaborKernel(F, Math.PI / 2);
     }
 
-    // Fallback
     return zeros();
 }
 
-// conv2d(image, kernel, stride, padding), no flipping
+// ---- conv2d + mapping ----
 function conv2d(image, kernel, stride, padding) {
     stride = parseInt(stride, 10);
     padding = parseInt(padding, 10);
@@ -735,7 +743,6 @@ function conv2d(image, kernel, stride, padding) {
     const W = image[0].length;
     const F = kernel.length;
 
-    // Pad image
     const H_p = H + 2 * padding;
     const W_p = W + 2 * padding;
     const padded = Array.from({ length: H_p }, () => Array(W_p).fill(0));
@@ -750,22 +757,32 @@ function conv2d(image, kernel, stride, padding) {
     const out_w = Math.floor((W_p - F) / stride) + 1;
 
     if (out_h <= 0 || out_w <= 0) {
-        return { out: [[0]], outNorm: [[0]], ok: false };
+        return { out: [[0]], outNorm: [[0]], ok: false, mapping: null };
     }
 
     const out = Array.from({ length: out_h }, () => Array(out_w).fill(0));
+    const mapping = Array.from({ length: out_h }, () =>
+        Array.from({ length: out_w }, () => null)
+    );
 
     for (let i = 0; i < out_h; i++) {
         for (let j = 0; j < out_w; j++) {
             let sum = 0;
             const h_start = i * stride;
             const w_start = j * stride;
+            const contribs = [];
+
             for (let ki = 0; ki < F; ki++) {
                 for (let kj = 0; kj < F; kj++) {
-                    sum += padded[h_start + ki][w_start + kj] * kernel[ki][kj];
+                    const iy = h_start + ki;
+                    const ix = w_start + kj;
+                    const val = padded[iy][ix] * kernel[ki][kj];
+                    sum += val;
+                    contribs.push({ iy, ix, ky: ki, kx: kj });
                 }
             }
             out[i][j] = sum;
+            mapping[i][j] = contribs;
         }
     }
 
@@ -785,15 +802,16 @@ function conv2d(image, kernel, stride, padding) {
         outNorm = out.map(row => row.map(() => 0));
     }
 
-    return { out, outNorm, ok: true };
+    return { out, outNorm, ok: true, mapping };
 }
 
-// Draw matrix into a grid-wrapper
+// ---- drawMatrix with coordinate tagging & events ----
 function drawMatrix(container, M, options = {}) {
     const {
         showValues = false,
         valueFmt = v => v.toFixed(1),
-        mode = 'image' // 'image' or 'kernel' or 'output'
+        mode = 'image',    // 'image' | 'kernel' | 'output'
+        type = null        // 'input' | 'kernel' | 'output'
     } = options;
 
     const rows = M.length;
@@ -811,7 +829,6 @@ function drawMatrix(container, M, options = {}) {
     }
 
     const range = max - min || 1;
-
     const center = (min + max) / 2 || 0;
 
     for (let i = 0; i < rows; i++) {
@@ -821,24 +838,21 @@ function drawMatrix(container, M, options = {}) {
             cell.className = 'cell';
 
             if (mode === 'image' || mode === 'output') {
-                // grayscale / heatmap
                 const norm = (v - min) / range;
-                const light = 20 + norm * 60; // 20% to 80%
+                const light = 20 + norm * 60;
                 if (mode === 'image') {
                     cell.style.backgroundColor = `hsl(215, 25%, ${light}%)`;
                 } else {
-                    // output: greenish
                     const alpha = 0.2 + norm * 0.8;
                     cell.style.backgroundColor = `rgba(163, 230, 53, ${alpha})`;
                 }
             } else if (mode === 'kernel') {
-                // blue-red diverging
                 const norm = (v - center) / (Math.abs(max - center) + 1e-6);
                 const sign = norm >= 0 ? 1 : -1;
                 const mag = Math.min(1, Math.abs(norm));
                 const sat = 50 + mag * 30;
                 const light = 50 - mag * 15;
-                const hue = (sign > 0) ? 0 : 220; // red or blue
+                const hue = (sign > 0) ? 0 : 220;
                 cell.style.backgroundColor = `hsl(${hue}, ${sat}%, ${light}%)`;
             }
 
@@ -846,12 +860,63 @@ function drawMatrix(container, M, options = {}) {
                 cell.textContent = valueFmt(v);
             }
 
+            // Attach coordinates & classes
+            if (type === 'input') {
+                cell.dataset.iy = i;
+                cell.dataset.ix = j;
+                cell.classList.add('input-cell');
+            } else if (type === 'kernel') {
+                cell.dataset.ky = i;
+                cell.dataset.kx = j;
+                cell.classList.add('kernel-cell');
+            } else if (type === 'output') {
+                cell.dataset.oy = i;
+                cell.dataset.ox = j;
+                cell.classList.add('output-cell');
+                cell.addEventListener('mouseenter', () => highlightForOutput(i, j));
+                cell.addEventListener('mouseleave', clearHighlights);
+            }
+
             container.appendChild(cell);
         }
     }
 }
 
-// ---- UI & State handling ----
+// ---- Hover highlight logic ----
+function highlightForOutput(oy, ox) {
+    if (!lastMapping || !lastMapping[oy] || !lastMapping[oy][ox]) return;
+
+    clearHighlights();
+
+    const contribs = lastMapping[oy][ox];
+
+    // Highlight output cell
+    const outCell = document.querySelector(
+        `.output-cell[data-oy="${oy}"][data-ox="${ox}"]`
+    );
+    if (outCell) outCell.classList.add('active-result');
+
+    // Highlight input + kernel cells
+    contribs.forEach(c => {
+        const inCell = document.querySelector(
+            `.input-cell[data-iy="${c.iy}"][data-ix="${c.ix}"]`
+        );
+        if (inCell) inCell.classList.add('active-input');
+
+        const kCell = document.querySelector(
+            `.kernel-cell[data-ky="${c.ky}"][data-kx="${c.kx}"]`
+        );
+        if (kCell) kCell.classList.add('active-weight');
+    });
+}
+
+function clearHighlights() {
+    document.querySelectorAll('.active-input').forEach(el => el.classList.remove('active-input'));
+    document.querySelectorAll('.active-weight').forEach(el => el.classList.remove('active-weight'));
+    document.querySelectorAll('.active-result').forEach(el => el.classList.remove('active-result'));
+}
+
+// ---- State helpers ----
 function clampState() {
     state.imgIndex = Math.max(0, Math.min(999, state.imgIndex));
     state.W = Math.max(2, Math.min(28, state.W));
@@ -896,15 +961,14 @@ function adjustRange(key, delta) {
 // ---- Main render ----
 function render() {
     clampState();
+    clearHighlights();
 
     const { imgIndex, W, F, S, P, filterType } = state;
 
-    // 1) Input patch
     const { patch, label } = getInputPatch(W, imgIndex);
 
-    // build padded version for display
-    let displayH = W + 2 * P;
-    let displayW = W + 2 * P;
+    const displayH = W + 2 * P;
+    const displayW = W + 2 * P;
     const displayImg = Array.from({ length: displayH }, () => Array(displayW).fill(0));
 
     for (let i = 0; i < W; i++) {
@@ -913,34 +977,36 @@ function render() {
         }
     }
 
-    // 2) kernel
     const kernel = buildFilter(F, filterType);
-
-    // 3) conv
-    const { out, outNorm, ok } = conv2d(patch, kernel, S, P);
+    const { out, outNorm, ok, mapping } = conv2d(patch, kernel, S, P);
+    lastMapping = mapping;
 
     drawMatrix(els.inputGrid, displayImg, {
         showValues: false,
-        mode: 'image'
+        mode: 'image',
+        type: 'input'
     });
 
     drawMatrix(els.kernelGrid, kernel, {
         showValues: true,
         valueFmt: v => v.toFixed(1),
-        mode: 'kernel'
+        mode: 'kernel',
+        type: 'kernel'
     });
 
     if (ok) {
         drawMatrix(els.outputGrid, outNorm, {
             showValues: false,
-            mode: 'output'
+            mode: 'output',
+            type: 'output'
         });
     } else {
-        els.outputGrid.innerHTML = '<div style="padding:10px; font-size:0.8rem; color:#f43f5e;">Invalid sizes (no output)</div>';
+        els.outputGrid.innerHTML =
+            '<div style="padding:10px; font-size:0.8rem; color:#f43f5e;">Invalid sizes (no output)</div>';
         els.outputGrid.style.gridTemplateColumns = '1fr';
+        lastMapping = null;
     }
 
-    // shape info
     els.inputInfo.textContent = `Index=${imgIndex}, Label≈${label} | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
     els.kernelInfo.textContent = `Type=${filterType}, Size=${F}×${F}`;
     els.outputInfo.textContent = ok ? `Size=${out.length}×${out[0].length}, Stride=${S}` : 'No valid output';
@@ -958,7 +1024,6 @@ els.imgInput.addEventListener('input', e => {
     updateUIFromState();
     render();
 });
-
 els.WInput.addEventListener('input', e => {
     state.W = parseInt(e.target.value, 10);
     clampState();
@@ -983,7 +1048,6 @@ els.PInput.addEventListener('input', e => {
     updateUIFromState();
     render();
 });
-
 els.filterSelect.addEventListener('change', e => {
     state.filterType = e.target.value;
     render();
@@ -992,7 +1056,6 @@ els.filterSelect.addEventListener('change', e => {
 // init
 updateUIFromState();
 render();
-
 </script>
 
 </body>
