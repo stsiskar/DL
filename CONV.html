@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convolutional Layer Visualization</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #0ea5e9;
+            --highlight-input: #f43f5e;
+            --highlight-weight: #fbbf24;
+            --highlight-calc: #a3e635;
+            --border-color: #334155;
+            --cell-size: 32px;
+            --gap: 3px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: var(--card-bg);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 { margin: 0; font-size: 1.25rem; font-weight: 600; color: var(--accent); }
+        p.subtitle { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+
+        main {
+            display: flex;
+            flex: 1;
+            padding: 2rem;
+            gap: 2rem;
+            overflow-x: hidden;
+        }
+
+        .sidebar {
+            flex: 0 0 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .controls-card {
+            background-color: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-group { margin-bottom: 1.25rem; }
+        .control-group:last-child { margin-bottom: 0; }
+
+        .control-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .value-display { color: var(--accent); font-weight: bold; font-family: monospace; }
+
+        .range-wrapper,
+        .input-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-adjust {
+            background: var(--border-color);
+            border: none;
+            color: var(--text-main);
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .btn-adjust:hover { background: var(--accent); color: #fff; }
+        .btn-adjust:active { transform: scale(0.95); }
+
+        input[type="range"] {
+            flex: 1;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+
+        input[type="number"] {
+            width: 60px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: #020617;
+            color: var(--text-main);
+            font-family: monospace;
+        }
+
+        select {
+            width: 100%;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: #020617;
+            color: var(--text-main);
+            font-size: 0.9rem;
+        }
+
+        .viz-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2.5rem;
+            align-items: center;
+        }
+
+        .stage-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            justify-content: center;
+            align-items: flex-start;
+            width: 100%;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(30, 41, 59, 0.5);
+            padding: 1rem;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            transition: border-color 0.3s;
+        }
+
+        .panel:hover { border-color: var(--border-color); }
+
+        .panel-title {
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-main);
+            text-align: center;
+        }
+
+        .panel-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+            font-family: monospace;
+            text-align: center;
+        }
+
+        .grid-wrapper {
+            display: grid;
+            gap: var(--gap);
+            padding: 8px;
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            max-height: 420px;
+            overflow: auto;
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            background-color: #475569;
+            border-radius: 4px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.7rem;
+            color: rgba(255,255,255,0.95);
+            cursor: default;
+            user-select: none;
+            font-family: monospace;
+        }
+
+        .cell.padding {
+            background-color: transparent;
+            border: 1px dashed var(--border-color);
+            color: var(--text-muted);
+        }
+
+        .symbol {
+            align-self: center;
+            font-size: 2rem;
+            color: var(--text-muted);
+            font-weight: bold;
+        }
+
+        .status-box {
+            width: 100%;
+            max-width: 900px;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            padding: 0.75rem 1rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .status-highlight {
+            color: var(--accent);
+            font-family: monospace;
+        }
+
+        @media (max-width: 1100px) {
+            main { flex-direction: column; }
+            .sidebar { width: 100%; flex: none; }
+            .controls-card { max-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>Convolutional Layer</h1>
+        <p class="subtitle">Interactive visualization of Input → Filter → Output</p>
+    </div>
+</header>
+
+<main>
+    <!-- Sidebar Controls -->
+    <aside class="sidebar">
+        <div class="controls-card">
+            <!-- Image Index -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Image Index</label>
+                    <span id="val-img" class="value-display">0</span>
+                </div>
+                <div class="input-wrapper">
+                    <button class="btn-adjust" onclick="adjustInt('imgIndex', -1)">-</button>
+                    <input type="number" id="inp-img" min="0" max="999" value="0">
+                    <button class="btn-adjust" onclick="adjustInt('imgIndex', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Input Size W -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Input Size (W)</label>
+                    <span id="val-W" class="value-display">28</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjustRange('W', -1)">-</button>
+                    <input type="range" id="inp-W" min="2" max="28" value="28">
+                    <button class="btn-adjust" onclick="adjustRange('W', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Filter Size F -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Filter Size (F)</label>
+                    <span id="val-F" class="value-display">3</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjustRange('F', -1)">-</button>
+                    <input type="range" id="inp-F" min="1" max="9" value="3">
+                    <button class="btn-adjust" onclick="adjustRange('F', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Stride S -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Stride (S)</label>
+                    <span id="val-S" class="value-display">1</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjustRange('S', -1)">-</button>
+                    <input type="range" id="inp-S" min="1" max="5" value="1">
+                    <button class="btn-adjust" onclick="adjustRange('S', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Padding P -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Padding (P)</label>
+                    <span id="val-P" class="value-display">0</span>
+                </div>
+                <div class="range-wrapper">
+                    <button class="btn-adjust" onclick="adjustRange('P', -1)">-</button>
+                    <input type="range" id="inp-P" min="0" max="10" value="0">
+                    <button class="btn-adjust" onclick="adjustRange('P', 1)">+</button>
+                </div>
+            </div>
+
+            <!-- Filter Type -->
+            <div class="control-group">
+                <div class="control-header">
+                    <label>Filter Type</label>
+                </div>
+                <select id="filter-type">
+                    <option>Identity</option>
+
+                    <option>Upper Border Detection</option>
+                    <option>Lower Border Detection</option>
+                    <option>Right Border Detection</option>
+                    <option>Left Border Detection</option>
+
+                    <option>Horizontal Edge Detection</option>
+                    <option>Vertical Edge Detection</option>
+
+                    <option>Diagonal Edge Detection (↘)</option>
+                    <option>Diagonal Edge Detection (↗)</option>
+
+                    <option>Sobel X</option>
+                    <option>Sobel Y</option>
+                    <option>Laplacian</option>
+                    <option>Box Blur</option>
+                    <option>Gaussian Blur</option>
+                    <option>Sharpen</option>
+                    <option>Emboss</option>
+
+                    <option>Gabor Horizontal</option>
+                    <option>Gabor Vertical</option>
+                </select>
+            </div>
+
+            <div style="margin-top: 1.2rem; font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
+                <strong style="color:var(--accent)">How to use:</strong><br>
+                Adjust <strong>W, F, S, P</strong> and the <strong>Filter Type</strong> to see how the
+                input patch, kernel, and output activation map change.
+            </div>
+        </div>
+    </aside>
+
+    <!-- Visualization Area -->
+    <div class="viz-area">
+        <div class="stage-row">
+            <!-- Input Image -->
+            <div class="panel">
+                <div class="panel-title">Input Image (Patch)</div>
+                <div class="panel-subtitle" id="input-info"></div>
+                <div id="input-grid" class="grid-wrapper"></div>
+            </div>
+
+            <div class="symbol">→</div>
+
+            <!-- Filter -->
+            <div class="panel">
+                <div class="panel-title">Filter / Kernel</div>
+                <div class="panel-subtitle" id="kernel-info"></div>
+                <div id="kernel-grid" class="grid-wrapper"></div>
+            </div>
+
+            <div class="symbol">=</div>
+
+            <!-- Output -->
+            <div class="panel">
+                <div class="panel-title">Output Activation Map</div>
+                <div class="panel-subtitle" id="output-info"></div>
+                <div id="output-grid" class="grid-wrapper"></div>
+            </div>
+        </div>
+
+        <div class="status-box" id="status-box">
+            Input: <span class="status-highlight" id="status-input-shape"></span> &nbsp; | &nbsp;
+            Kernel: <span class="status-highlight" id="status-kernel-shape"></span> &nbsp; | &nbsp;
+            Output: <span class="status-highlight" id="status-output-shape"></span>
+        </div>
+    </div>
+</main>
+
+<script>
+/*
+    This JS re-implements the main logic of your Python widget:
+    - synthetic get_input_patch(W, idx)
+    - build_filter(F, type)
+    - conv2d(image, kernel, stride, padding)
+    and draws three grids: Input, Filter, Output.
+*/
+
+const state = {
+    imgIndex: 0,
+    W: 28,
+    F: 3,
+    S: 1,
+    P: 0,
+    filterType: 'Identity'
+};
+
+// ---- DOM elements ----
+const els = {
+    imgInput: document.getElementById('inp-img'),
+    imgVal: document.getElementById('val-img'),
+
+    WInput: document.getElementById('inp-W'),
+    WVal: document.getElementById('val-W'),
+
+    FInput: document.getElementById('inp-F'),
+    FVal: document.getElementById('val-F'),
+
+    SInput: document.getElementById('inp-S'),
+    SVal: document.getElementById('val-S'),
+
+    PInput: document.getElementById('inp-P'),
+    PVal: document.getElementById('val-P'),
+
+    filterSelect: document.getElementById('filter-type'),
+
+    inputGrid: document.getElementById('input-grid'),
+    kernelGrid: document.getElementById('kernel-grid'),
+    outputGrid: document.getElementById('output-grid'),
+
+    inputInfo: document.getElementById('input-info'),
+    kernelInfo: document.getElementById('kernel-info'),
+    outputInfo: document.getElementById('output-info'),
+
+    statusInputShape: document.getElementById('status-input-shape'),
+    statusKernelShape: document.getElementById('status-kernel-shape'),
+    statusOutputShape: document.getElementById('status-output-shape'),
+    statusBox: document.getElementById('status-box')
+};
+
+// ---- Synthetic "MNIST-like" generator ----
+// We create a 28x28 grayscale pattern based on the image index.
+function generateBaseImage(idx) {
+    const size = 28;
+    const img = [];
+    const centerX = size / 2 + Math.sin(idx) * 3;
+    const centerY = size / 2 + Math.cos(idx * 0.7) * 3;
+    const radius = 7 + (idx % 4);
+
+    for (let i = 0; i < size; i++) {
+        const row = [];
+        for (let j = 0; j < size; j++) {
+            const dx = i - centerY;
+            const dy = j - centerX;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            let val = 0;
+
+            if (dist < radius + 1) {
+                val = 1 - Math.min(1, dist / (radius + 1));
+            }
+
+            // add faint diagonal stroke
+            const diag = Math.abs(i - j - (idx % 5));
+            if (diag < 2) {
+                val = Math.max(val, 0.4);
+            }
+
+            row.push(val);
+        }
+        img.push(row);
+    }
+    return img;
+}
+
+// Equivalent of get_input_patch(W, idx)
+function getInputPatch(W, idx) {
+    idx = Math.max(0, Math.min(999, idx));
+    W = Math.max(2, Math.min(28, W));
+
+    const base = generateBaseImage(idx);
+    const patch = [];
+    for (let i = 0; i < W; i++) {
+        const row = [];
+        for (let j = 0; j < W; j++) {
+            row.push(base[i][j]);
+        }
+        patch.push(row);
+    }
+    const label = idx % 10; // synthetic label
+    return { patch, label };
+}
+
+// Embed small kernel into F×F
+function embedKernel(base, F) {
+    const f0 = base.length;
+    if (F <= f0) {
+        const k = [];
+        for (let i = 0; i < F; i++) {
+            const row = [];
+            for (let j = 0; j < F; j++) {
+                row.push(base[i][j]);
+            }
+            k.push(row);
+        }
+        return k;
+    }
+    const k = Array.from({ length: F }, () => Array(F).fill(0));
+    const start = Math.floor(F / 2 - f0 / 2);
+    for (let i = 0; i < f0; i++) {
+        for (let j = 0; j < f0; j++) {
+            k[start + i][start + j] = base[i][j];
+        }
+    }
+    return k;
+}
+
+// Gabor-like kernel
+function gaborKernel(F, theta) {
+    const k = [];
+    const sigma = 0.5;
+    const wavelength = 1.0;
+
+    for (let i = 0; i < F; i++) {
+        const row = [];
+        for (let j = 0; j < F; j++) {
+            const x = -1 + (2 * j) / (F - 1);
+            const y = -1 + (2 * i) / (F - 1);
+            const x_theta = x * Math.cos(theta) + y * Math.sin(theta);
+            const y_theta = -x * Math.sin(theta) + y * Math.cos(theta);
+
+            const g = Math.exp(-(x_theta * x_theta + y_theta * y_theta) / (2 * sigma * sigma)) *
+                Math.cos((2 * Math.PI * x_theta) / wavelength);
+            row.push(g);
+        }
+        k.push(row);
+    }
+    return k;
+}
+
+// build_filter(F, filter_type)
+function buildFilter(F, filterType) {
+    F = parseInt(F, 10);
+    const ft = filterType.toLowerCase();
+
+    const zeros = () => Array.from({ length: F }, () => Array(F).fill(0));
+
+    if (ft.includes('identity')) {
+        const k = zeros();
+        k[Math.floor(F / 2)][Math.floor(F / 2)] = 1.0;
+        return k;
+    }
+
+    // borders
+    if (filterType === 'Upper Border Detection') {
+        const k = zeros();
+        for (let j = 0; j < F; j++) {
+            k[0][j] = -1.0;
+            k[F - 1][j] = 1.0;
+        }
+        return k;
+    }
+    if (filterType === 'Lower Border Detection') {
+        const k = zeros();
+        for (let j = 0; j < F; j++) {
+            k[0][j] = 1.0;
+            k[F - 1][j] = -1.0;
+        }
+        return k;
+    }
+    if (filterType === 'Right Border Detection') {
+        const k = zeros();
+        for (let i = 0; i < F; i++) {
+            k[i][0] = -1.0;
+            k[i][F - 1] = 1.0;
+        }
+        return k;
+    }
+    if (filterType === 'Left Border Detection') {
+        const k = zeros();
+        for (let i = 0; i < F; i++) {
+            k[i][0] = 1.0;
+            k[i][F - 1] = -1.0;
+        }
+        return k;
+    }
+
+    // Horizontal / vertical edges
+    if (filterType === 'Horizontal Edge Detection') {
+        const k = zeros();
+        for (let i = 0; i < F; i++) {
+            for (let j = 0; j < F; j++) {
+                k[i][j] = (i < Math.floor(F / 2)) ? -1.0 : 1.0;
+            }
+        }
+        return k;
+    }
+    if (filterType === 'Vertical Edge Detection') {
+        const k = zeros();
+        for (let i = 0; i < F; i++) {
+            for (let j = 0; j < F; j++) {
+                k[i][j] = (j < Math.floor(F / 2)) ? -1.0 : 1.0;
+            }
+        }
+        return k;
+    }
+
+    // Diagonal edges
+    if (filterType === 'Diagonal Edge Detection (↘)') {
+        const k = zeros();
+        for (let i = 0; i < F; i++) {
+            k[i][i] = 1.0;
+        }
+        for (let i = 0; i < F - 1; i++) {
+            k[i][i + 1] = -1.0;
+        }
+        return k;
+    }
+    if (filterType === 'Diagonal Edge Detection (↗)') {
+        const k = zeros();
+        for (let i = 0; i < F; i++) {
+            k[i][F - 1 - i] = 1.0;
+        }
+        for (let i = 0; i < F - 1; i++) {
+            k[i + 1][F - 1 - i] = -1.0;
+        }
+        return k;
+    }
+
+    // Sobel X / Y
+    if (ft.includes('sobel x')) {
+        const base = [
+            [-1, 0, 1],
+            [-2, 0, 2],
+            [-1, 0, 1]
+        ];
+        return embedKernel(base, F);
+    }
+    if (ft.includes('sobel y')) {
+        const base = [
+            [-1, -2, -1],
+            [0, 0, 0],
+            [1, 2, 1]
+        ];
+        return embedKernel(base, F);
+    }
+
+    // Laplacian
+    if (ft.includes('laplacian')) {
+        const base = [
+            [0, -1, 0],
+            [-1, 4, -1],
+            [0, -1, 0]
+        ];
+        return embedKernel(base, F);
+    }
+
+    // Box blur
+    if (ft.includes('box blur')) {
+        const k = zeros();
+        const val = 1.0 / (F * F);
+        for (let i = 0; i < F; i++) {
+            for (let j = 0; j < F; j++) {
+                k[i][j] = val;
+            }
+        }
+        return k;
+    }
+
+    // Gaussian blur
+    if (ft.includes('gaussian blur')) {
+        const k = zeros();
+        const sigma = 0.6;
+        let sum = 0;
+        for (let i = 0; i < F; i++) {
+            for (let j = 0; j < F; j++) {
+                const x = -1 + (2 * j) / (F - 1);
+                const y = -1 + (2 * i) / (F - 1);
+                const val = Math.exp(-(x * x + y * y) / (2 * sigma * sigma));
+                k[i][j] = val;
+                sum += val;
+            }
+        }
+        // normalize
+        for (let i = 0; i < F; i++) {
+            for (let j = 0; j < F; j++) {
+                k[i][j] /= sum;
+            }
+        }
+        return k;
+    }
+
+    // Sharpen
+    if (ft.includes('sharpen')) {
+        const base = [
+            [0, -1, 0],
+            [-1, 5, -1],
+            [0, -1, 0]
+        ];
+        return embedKernel(base, F);
+    }
+
+    // Emboss
+    if (ft.includes('emboss')) {
+        const base = [
+            [-2, -1, 0],
+            [-1, 1, 1],
+            [0, 1, 2]
+        ];
+        return embedKernel(base, F);
+    }
+
+    // Gabor-like
+    if (ft.includes('gabor') && ft.includes('horizontal')) {
+        return gaborKernel(F, 0.0);
+    }
+    if (ft.includes('gabor') && ft.includes('vertical')) {
+        return gaborKernel(F, Math.PI / 2);
+    }
+
+    // Fallback
+    return zeros();
+}
+
+// conv2d(image, kernel, stride, padding), no flipping
+function conv2d(image, kernel, stride, padding) {
+    stride = parseInt(stride, 10);
+    padding = parseInt(padding, 10);
+
+    const H = image.length;
+    const W = image[0].length;
+    const F = kernel.length;
+
+    // Pad image
+    const H_p = H + 2 * padding;
+    const W_p = W + 2 * padding;
+    const padded = Array.from({ length: H_p }, () => Array(W_p).fill(0));
+
+    for (let i = 0; i < H; i++) {
+        for (let j = 0; j < W; j++) {
+            padded[i + padding][j + padding] = image[i][j];
+        }
+    }
+
+    const out_h = Math.floor((H_p - F) / stride) + 1;
+    const out_w = Math.floor((W_p - F) / stride) + 1;
+
+    if (out_h <= 0 || out_w <= 0) {
+        return { out: [[0]], outNorm: [[0]], ok: false };
+    }
+
+    const out = Array.from({ length: out_h }, () => Array(out_w).fill(0));
+
+    for (let i = 0; i < out_h; i++) {
+        for (let j = 0; j < out_w; j++) {
+            let sum = 0;
+            const h_start = i * stride;
+            const w_start = j * stride;
+            for (let ki = 0; ki < F; ki++) {
+                for (let kj = 0; kj < F; kj++) {
+                    sum += padded[h_start + ki][w_start + kj] * kernel[ki][kj];
+                }
+            }
+            out[i][j] = sum;
+        }
+    }
+
+    let vmin = Infinity;
+    let vmax = -Infinity;
+    for (let i = 0; i < out_h; i++) {
+        for (let j = 0; j < out_w; j++) {
+            vmin = Math.min(vmin, out[i][j]);
+            vmax = Math.max(vmax, out[i][j]);
+        }
+    }
+
+    let outNorm;
+    if (vmax !== vmin) {
+        outNorm = out.map(row => row.map(v => (v - vmin) / (vmax - vmin)));
+    } else {
+        outNorm = out.map(row => row.map(() => 0));
+    }
+
+    return { out, outNorm, ok: true };
+}
+
+// Draw matrix into a grid-wrapper
+function drawMatrix(container, M, options = {}) {
+    const {
+        showValues = false,
+        valueFmt = v => v.toFixed(1),
+        mode = 'image' // 'image' or 'kernel' or 'output'
+    } = options;
+
+    const rows = M.length;
+    const cols = M[0].length;
+
+    container.innerHTML = '';
+    container.style.gridTemplateColumns = `repeat(${cols}, var(--cell-size))`;
+
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+            min = Math.min(min, M[i][j]);
+            max = Math.max(max, M[i][j]);
+        }
+    }
+
+    const range = max - min || 1;
+
+    const center = (min + max) / 2 || 0;
+
+    for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+            const v = M[i][j];
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+
+            if (mode === 'image' || mode === 'output') {
+                // grayscale / heatmap
+                const norm = (v - min) / range;
+                const light = 20 + norm * 60; // 20% to 80%
+                if (mode === 'image') {
+                    cell.style.backgroundColor = `hsl(215, 25%, ${light}%)`;
+                } else {
+                    // output: greenish
+                    const alpha = 0.2 + norm * 0.8;
+                    cell.style.backgroundColor = `rgba(163, 230, 53, ${alpha})`;
+                }
+            } else if (mode === 'kernel') {
+                // blue-red diverging
+                const norm = (v - center) / (Math.abs(max - center) + 1e-6);
+                const sign = norm >= 0 ? 1 : -1;
+                const mag = Math.min(1, Math.abs(norm));
+                const sat = 50 + mag * 30;
+                const light = 50 - mag * 15;
+                const hue = (sign > 0) ? 0 : 220; // red or blue
+                cell.style.backgroundColor = `hsl(${hue}, ${sat}%, ${light}%)`;
+            }
+
+            if (showValues) {
+                cell.textContent = valueFmt(v);
+            }
+
+            container.appendChild(cell);
+        }
+    }
+}
+
+// ---- UI & State handling ----
+function clampState() {
+    state.imgIndex = Math.max(0, Math.min(999, state.imgIndex));
+    state.W = Math.max(2, Math.min(28, state.W));
+    state.F = Math.max(1, Math.min(9, state.F));
+    state.S = Math.max(1, Math.min(5, state.S));
+    state.P = Math.max(0, Math.min(10, state.P));
+}
+
+function updateUIFromState() {
+    els.imgInput.value = state.imgIndex;
+    els.imgVal.textContent = state.imgIndex;
+
+    els.WInput.value = state.W;
+    els.WVal.textContent = state.W;
+
+    els.FInput.value = state.F;
+    els.FVal.textContent = state.F;
+
+    els.SInput.value = state.S;
+    els.SVal.textContent = state.S;
+
+    els.PInput.value = state.P;
+    els.PVal.textContent = state.P;
+
+    els.filterSelect.value = state.filterType;
+}
+
+function adjustInt(key, delta) {
+    state[key] += delta;
+    clampState();
+    updateUIFromState();
+    render();
+}
+
+function adjustRange(key, delta) {
+    state[key] += delta;
+    clampState();
+    updateUIFromState();
+    render();
+}
+
+// ---- Main render ----
+function render() {
+    clampState();
+
+    const { imgIndex, W, F, S, P, filterType } = state;
+
+    // 1) Input patch
+    const { patch, label } = getInputPatch(W, imgIndex);
+
+    // build padded version for display
+    let displayH = W + 2 * P;
+    let displayW = W + 2 * P;
+    const displayImg = Array.from({ length: displayH }, () => Array(displayW).fill(0));
+
+    for (let i = 0; i < W; i++) {
+        for (let j = 0; j < W; j++) {
+            displayImg[i + P][j + P] = patch[i][j];
+        }
+    }
+
+    // 2) kernel
+    const kernel = buildFilter(F, filterType);
+
+    // 3) conv
+    const { out, outNorm, ok } = conv2d(patch, kernel, S, P);
+
+    drawMatrix(els.inputGrid, displayImg, {
+        showValues: false,
+        mode: 'image'
+    });
+
+    drawMatrix(els.kernelGrid, kernel, {
+        showValues: true,
+        valueFmt: v => v.toFixed(1),
+        mode: 'kernel'
+    });
+
+    if (ok) {
+        drawMatrix(els.outputGrid, outNorm, {
+            showValues: false,
+            mode: 'output'
+        });
+    } else {
+        els.outputGrid.innerHTML = '<div style="padding:10px; font-size:0.8rem; color:#f43f5e;">Invalid sizes (no output)</div>';
+        els.outputGrid.style.gridTemplateColumns = '1fr';
+    }
+
+    // shape info
+    els.inputInfo.textContent = `Index=${imgIndex}, Label≈${label} | Size=${displayImg.length}×${displayImg[0].length} (with P=${P})`;
+    els.kernelInfo.textContent = `Type=${filterType}, Size=${F}×${F}`;
+    els.outputInfo.textContent = ok ? `Size=${out.length}×${out[0].length}, Stride=${S}` : 'No valid output';
+
+    els.statusInputShape.textContent = `${displayImg.length}×${displayImg[0].length}`;
+    els.statusKernelShape.textContent = `${F}×${F}`;
+    els.statusOutputShape.textContent = ok ? `${out.length}×${out[0].length}` : '—';
+    els.statusBox.style.borderColor = ok ? 'var(--border-color)' : '#f97373';
+}
+
+// ---- Event listeners ----
+els.imgInput.addEventListener('input', e => {
+    state.imgIndex = parseInt(e.target.value || '0', 10);
+    clampState();
+    updateUIFromState();
+    render();
+});
+
+els.WInput.addEventListener('input', e => {
+    state.W = parseInt(e.target.value, 10);
+    clampState();
+    updateUIFromState();
+    render();
+});
+els.FInput.addEventListener('input', e => {
+    state.F = parseInt(e.target.value, 10);
+    clampState();
+    updateUIFromState();
+    render();
+});
+els.SInput.addEventListener('input', e => {
+    state.S = parseInt(e.target.value, 10);
+    clampState();
+    updateUIFromState();
+    render();
+});
+els.PInput.addEventListener('input', e => {
+    state.P = parseInt(e.target.value, 10);
+    clampState();
+    updateUIFromState();
+    render();
+});
+
+els.filterSelect.addEventListener('change', e => {
+    state.filterType = e.target.value;
+    render();
+});
+
+// init
+updateUIFromState();
+render();
+
+</script>
+
+</body>
+</html>
