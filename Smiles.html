@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>28x28 Grayscale Smiles Preview</title>
+<style>
+body{
+    font-family: Arial, sans-serif;
+}
+.container{
+    display:flex;
+    flex-wrap:wrap;
+    gap:24px;
+}
+.block{
+    text-align:center;
+}
+canvas{
+    border:1px solid #ccc;
+    image-rendering: pixelated;
+}
+.label{
+    margin-top:6px;
+    font-weight:bold;
+}
+</style>
+</head>
+<body>
+
+<h2>28×28 Grayscale Emoji (Pixel View)</h2>
+
+<div class="container" id="gallery"></div>
+
+<script>
+const W = 28;
+const H = 28;
+const SCALE = 8;
+
+// ---- helpers ----
+function blank(v=0){
+    return Array.from({length:H},()=>Array(W).fill(v));
+}
+function disk(img,cx,cy,r,v){
+    let r2=r*r;
+    for(let y=0;y<H;y++)
+        for(let x=0;x<W;x++)
+            if((x-cx)**2+(y-cy)**2<=r2)
+                img[y][x]=v;
+}
+function arc(img,cx,cy,rx,ry,t,sign,v){
+    for(let y=0;y<H;y++)
+        for(let x=0;x<W;x++){
+            let dx=(x-cx)/rx, dy=(y-cy)/ry;
+            let d=dx*dx+dy*dy;
+            if(d>(1-t)&&d<(1+t) && Math.sign(y-cy)==sign)
+                img[y][x]=v;
+        }
+}
+function hline(img,y,x1,x2,v){
+    for(let x=x1;x<=x2;x++)
+        img[y][x]=v;
+}
+function heart(img,cx,cy,v){
+    const pts=[
+        [0,0],[1,0],[3,0],[4,0],
+        [-1,1],[2,1],[5,1],
+        [-1,2],[2,2],[5,2],
+        [0,3],[1,3],[3,3],[4,3],
+        [2,4]
+    ];
+    pts.forEach(p=>{
+        let x=cx+p[0]-2, y=cy+p[1]-2;
+        if(x>=0&&x<W&&y>=0&&y<H)
+            img[y][x]=v;
+    });
+}
+
+// ---- emoji generators ----
+function simple(){
+    let i=blank();
+    disk(i,14,14,10,200);
+    disk(i,9,10,2,0);
+    disk(i,19,10,2,0);
+    arc(i,14,17,7,4,0.25,1,0);
+    return i;
+}
+function big(){
+    let i=blank();
+    disk(i,14,14,10,220);
+    disk(i,9,10,2,0);
+    disk(i,19,10,2,0);
+    arc(i,14,18,8,5,0.5,1,0);
+    return i;
+}
+function wink(){
+    let i=blank();
+    disk(i,14,14,10,200);
+    hline(i,10,6,11,0);
+    disk(i,19,10,2,0);
+    arc(i,14,17,7,4,0.25,1,0);
+    return i;
+}
+function sad(){
+    let i=blank();
+    disk(i,14,14,10,200);
+    disk(i,9,10,2,0);
+    disk(i,19,10,2,0);
+    arc(i,14,20,7,4,0.25,-1,0);
+    return i;
+}
+function relief(){
+    let i=blank();
+    disk(i,14,14,10,200);
+    arc(i,10,11,3,2,0.35,-1,0);
+    arc(i,18,11,3,2,0.35,-1,0);
+    arc(i,14,18,6,3,0.2,1,0);
+    return i;
+}
+function heartEyes(){
+    let i=blank();
+    disk(i,14,14,10,220);
+    heart(i,9,10,0);
+    heart(i,19,10,0);
+    arc(i,14,18,7,4,0.25,1,0);
+    return i;
+}
+
+// ---- drawing ----
+function draw(img,label){
+    let c=document.createElement("canvas");
+    c.width=W*SCALE;
+    c.height=H*SCALE;
+    let ctx=c.getContext("2d");
+
+    for(let y=0;y<H;y++){
+        for(let x=0;x<W;x++){
+            let v=img[y][x];
+            ctx.fillStyle=`rgb(${v},${v},${v})`;
+            ctx.fillRect(x*SCALE,y*SCALE,SCALE,SCALE);
+        }
+    }
+
+    let wrap=document.createElement("div");
+    wrap.className="block";
+    wrap.appendChild(c);
+
+    let lab=document.createElement("div");
+    lab.className="label";
+    lab.textContent=label;
+    wrap.appendChild(lab);
+
+    document.getElementById("gallery").appendChild(wrap);
+}
+
+// ---- render all ----
+draw(simple(),"🙂 Simple");
+draw(big(),"😄 Big");
+draw(wink(),"😉 Wink");
+draw(sad(),"☹️ Sad");
+draw(relief(),"😌 Relief");
+draw(heartEyes(),"😍 Heart Eyes");
+</script>
+
+</body>
+</html>
