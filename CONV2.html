@@ -518,7 +518,14 @@ function getInputPatch(W, type) {
     }
     return { patch };
 }
-
+    
+function valueFmt(v) {
+    if (Math.abs(v) < 0.1)
+        return Number(v).toPrecision(3);
+    else
+        return Number(v).toFixed(2);
+}
+    
 // --------------------------------------------------
 //  FILTER BUILDERS   (same as your original logic)
 // --------------------------------------------------
@@ -828,7 +835,6 @@ function conv2d(image, kernel, stride, padding) {
 function drawMatrix(container, M, options = {}) {
     const {
         showValues = false,
-        valueFmt = v => v.toFixed(1),
         mode = 'image',    // 'image' | 'kernel' | 'output'
         type = null,       // 'input' | 'kernel' | 'output'
         paddingInfo = null // { W, P } for input grid
